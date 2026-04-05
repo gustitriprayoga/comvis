@@ -322,7 +322,7 @@ class ASLWebProcessor:
             }
     
     def set_mode(self, mode: str):
-        """Set translation mode."""
+        """Set translation mode and update camera strictness."""
         mode_map = {
             "instant": TranslationMode.INSTANT,
             "balanced": TranslationMode.BALANCED,
@@ -330,8 +330,33 @@ class ASLWebProcessor:
             "strict": TranslationMode.STRICT,
             "manual": TranslationMode.MANUAL
         }
-        if mode in mode_map and self.text_buffer:
-            self.text_buffer.set_mode(mode_map[mode])
+        
+        if mode in mode_map:
+            # 1. Update Text Buffer (Logika ngetik huruf)
+            if self.text_buffer:
+                self.text_buffer.set_mode(mode_map[mode])
+                
+            # 2. UPDATE SENSITIVITAS KAMERA (Ini yang bikin kerasa bedanya di layar!)
+            if mode == "instant":
+                self.REQUIRED_STREAK = 3       # Super ngebut, nahan bentar langsung ke-detect
+                self.MIN_CONFIDENCE = 0.70     # Toleransi AI dinaikin
+                self.STABILITY_THRESHOLD = 0.08 # Bebas gerak dikit nggak masalah
+            elif mode == "balanced":
+                self.REQUIRED_STREAK = 6       # Normal (Seimbang)
+                self.MIN_CONFIDENCE = 0.85
+                self.STABILITY_THRESHOLD = 0.03
+            elif mode == "accurate":
+                self.REQUIRED_STREAK = 8      # Teliti (Butuh nahan lebih lama)
+                self.MIN_CONFIDENCE = 0.90
+                self.STABILITY_THRESHOLD = 0.02
+            elif mode == "strict":
+                self.REQUIRED_STREAK = 10      # Sangat Teliti (Harus super stabil & mirip banget)
+                self.MIN_CONFIDENCE = 0.95
+                self.STABILITY_THRESHOLD = 0.01
+                
+            # Bersihin history pas ganti mode biar transisinya mulus
+            self.temporal_streak = []
+            self.landmarks_history = []
     
     def clear_text(self):
         """Clear all text."""
