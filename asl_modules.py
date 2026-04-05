@@ -169,7 +169,7 @@ def create_mobilenet_model(num_classes: int = NUM_CLASSES,
     return model
 
 
-def create_landmark_model(num_classes: int = NUM_CLASSES, input_dim: int = 63) -> Model:
+def create_landmark_model(num_classes: int = NUM_CLASSES, input_dim: int = 126) -> Model:
     """Create landmark-based classifier model."""
     inputs = Input(shape=(input_dim,))
     x = Dense(256, activation='relu')(inputs)
@@ -212,14 +212,17 @@ class HandResult:
 class HandDetector:
     """Hand detection using MediaPipe."""
     
-    def __init__(self, max_num_hands: int = 2, min_detection_confidence: float = 0.7):
+    def __init__(self, max_num_hands: int = 2, min_detection_confidence: float = 0.7, static_mode: bool = False):
         import mediapipe as mp
         self.mp_hands = mp.solutions.hands
         self.mp_drawing = mp.solutions.drawing_utils
         self.mp_drawing_styles = mp.solutions.drawing_styles
+        
         self.hands = self.mp_hands.Hands(
-            static_image_mode=False, max_num_hands=max_num_hands,
-            min_detection_confidence=min_detection_confidence, min_tracking_confidence=0.5
+            static_image_mode=static_mode, # <--- 2. Ubah False jadi static_mode
+            max_num_hands=max_num_hands,
+            min_detection_confidence=min_detection_confidence, 
+            min_tracking_confidence=0.5
         )
         self._results = None
     
@@ -297,13 +300,39 @@ class LandmarkASLClassifier:
             normalized = normalized / max_dist
         return normalized
     
-    def classify(self, landmarks: np.ndarray) -> Tuple[str, float]:
-        if self.model is None or landmarks is None or len(landmarks) != 21:
+    def process_two_hands(self, detected_hands) -> np.ndarray:
+        if not detected_hands:
+            return np.zeros(126)
+
+        # 1. ANTI-FLIP: Urutkan tangan berdasarkan posisi X di layar (kiri ke kanan)
+        hands = sorted(detected_hands, key=lambda h: h.landmarks[0][0])
+        combined = np.zeros(126)
+        
+        # 2. RELATIVE POSITION: Jadikan pergelangan tangan PERTAMA sebagai titik pusat
+        base_wrist = hands[0].landmarks[0].copy()
+
+        all_norms = []
+        for hand in hands[:2]: # Proses maksimal 2 tangan
+            norm = hand.landmarks - base_wrist
+            all_norms.append(norm)
+
+        # Skala proporsional berdasarkan bentangan kedua tangan
+        max_dist = max([np.max(np.linalg.norm(n, axis=1)) for n in all_norms])
+
+        for i, norm in enumerate(all_norms):
+            if max_dist > 0:
+                norm = norm / max_dist
+            start_idx = i * 63
+            end_idx = start_idx + 63
+            combined[start_idx:end_idx] = norm.flatten()
+
+        return combined
+
+    # Terus update fungsi classify nya jadi gini:
+    def classify(self, combined_features: np.ndarray) -> Tuple[str, float]:
+        if self.model is None or combined_features is None or len(combined_features) != 126:
             return "?", 0.0
-        normalized = self.normalize_landmarks(landmarks)
-        if normalized is None:
-            return "?", 0.0
-        flat = normalized.flatten().reshape(1, -1)
+        flat = combined_features.reshape(1, -1)
         predictions = self.model.predict(flat, verbose=0)[0]
         idx = np.argmax(predictions)
         return self.class_names[idx] if idx < len(self.class_names) else "?", float(predictions[idx])
@@ -346,17 +375,51 @@ class SpeechEngine:
         try:
             from gtts import gTTS
             import tempfile
+            import os
+            import platform
+            import time
             self._is_speaking = True
+            
+            # Bikin path temporary file, tapi langsung di-close 
+            # biar nggak di-lock sama system Windows
+            temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
+            temp_path = temp_file.name
+            temp_file.close() 
+            
+            # Generate suara dari teks
             tts = gTTS(text=text, lang=self.language, slow=False)
-            with tempfile.NamedTemporaryFile(suffix='.mp3', delete=False) as f:
-                temp_path = f.name
-                tts.save(temp_path)
-            os.system(f'afplay {temp_path} 2>/dev/null')
-            try: os.unlink(temp_path)
-            except: pass
+            tts.save(temp_path)
+            
+            # Deteksi OS biar jalan di Windows lu ngab
+            if platform.system() == 'Windows':
+                try:
+                    import pygame
+                    pygame.mixer.init()
+                    pygame.mixer.music.load(temp_path)
+                    pygame.mixer.music.play()
+                    # Tunggu sampai suara selesai dimainkan
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(0.1)
+                    # Stop dan quit mixer biar file MP3 bisa dihapus
+                    pygame.mixer.music.stop()
+                    pygame.mixer.quit()
+                except ImportError:
+                    print("[Server] Pygame belum keinstall bro. Ketik: pip install pygame")
+            elif platform.system() == 'Darwin': # Mac
+                os.system(f'afplay "{temp_path}" 2>/dev/null')
+            else: # Linux
+                os.system(f'mpg123 "{temp_path}" 2>/dev/null')
+                
+            # Hapus file MP3 temporary biar nggak menuh-menuhin memori
+            try: 
+                os.remove(temp_path)
+            except Exception as e: 
+                pass
+                
             self._is_speaking = False
-        except Exception:
-            print(f"[TTS]: {text}")
+            
+        except Exception as e:
+            print(f"[TTS Error]: {e}")
             self._is_speaking = False
     
     def _worker_loop(self):
@@ -416,7 +479,7 @@ class TextBuffer:
             time_held = current_time - self._pending_start_time
             
             if self._pending_count >= settings['repeats'] and time_held >= settings['hold_time']:
-                if letter != self._last_added_letter or current_time - self._last_add_time >= 1.0:
+                if letter != self._last_added_letter or current_time - self._last_add_time >= 10.0:
                     self._current_word += letter
                     self._last_added_letter = letter
                     self._last_add_time = current_time
@@ -471,7 +534,7 @@ def train_cnn_model(train_dir: str, epochs: int = 30, batch_size: int = 32,
 def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models/landmarks_train.npz'):
     """Extract hand landmarks from dataset images."""
     print("Extracting landmarks from dataset...")
-    detector = HandDetector(max_num_hands=1)
+    detector = HandDetector(max_num_hands=2, static_mode=True)
     
     all_landmarks = []
     all_labels = []
@@ -483,7 +546,7 @@ def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models
         if not os.path.isdir(class_dir):
             continue
         
-        for img_name in os.listdir(class_dir)[:100]:  # Limit per class
+        for img_name in os.listdir(class_dir):  # Limit per class
             img_path = os.path.join(class_dir, img_name)
             try:
                 img = cv2.imread(img_path)
@@ -491,14 +554,26 @@ def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models
                     continue
                 hands = detector.detect(img, draw=False)
                 if hands:
-                    landmarks = hands[0].landmarks
-                    # Normalize
-                    wrist = landmarks[0].copy()
-                    normalized = landmarks - wrist
-                    max_dist = np.max(np.linalg.norm(normalized, axis=1))
-                    if max_dist > 0:
-                        normalized = normalized / max_dist
-                    all_landmarks.append(normalized.flatten())
+                    hands = sorted(hands, key=lambda h: h.landmarks[0][0])
+                    combined = np.zeros(126)
+                    
+                    base_wrist = hands[0].landmarks[0].copy()
+                    
+                    all_norms = []
+                    for hand in hands[:2]:
+                        norm = hand.landmarks - base_wrist
+                        all_norms.append(norm)
+                        
+                    max_dist = max([np.max(np.linalg.norm(n, axis=1)) for n in all_norms])
+                    
+                    for i, norm in enumerate(all_norms):
+                        if max_dist > 0:
+                            norm = norm / max_dist
+                        start_idx = i * 63
+                        end_idx = start_idx + 63
+                        combined[start_idx:end_idx] = norm.flatten()
+                        
+                    all_landmarks.append(combined)
                     all_labels.append(class_idx)
             except Exception:
                 continue

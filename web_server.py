@@ -28,9 +28,9 @@ class ASLWebProcessor:
     """ASL Recognition processor for web streaming with accuracy improvements."""
     
     # Validation thresholds (BALANCED - not too fast, not too slow)
-    MIN_CONFIDENCE = 0.70      # Minimum confidence to accept
-    MIN_GAP = 0.12             # Minimum gap between top-1 and top-2
-    REQUIRED_STREAK = 4        # Required consecutive same predictions (slowed down)
+    MIN_CONFIDENCE = 0.85      # Minimum confidence to accept
+    MIN_GAP = 0.15             # Minimum gap between top-1 and top-2
+    REQUIRED_STREAK = 6        # Required consecutive same predictions (slowed down)
     STABILITY_THRESHOLD = 0.03 # Hand movement threshold (stricter)
     
     def __init__(self, model_path: str = "saved_models/asl_model_best.keras"):
@@ -70,7 +70,7 @@ class ASLWebProcessor:
         
         # Initialize hand detector
         self.hand_detector = HandDetector(
-            max_num_hands=1,
+            max_num_hands=2, 
             min_detection_confidence=0.7
         )
         
@@ -254,83 +254,45 @@ class ASLWebProcessor:
             hands = self.hand_detector.detect(frame, draw=True)
             
             if hands:
-                hand = hands[0]
-                x, y, w, h = hand.bbox
+                # 1. Gabungin data 2 tangan pakai fungsi yang baru kita bikin di ASL Classifier
+                combined_features = self.landmark_classifier.process_two_hands(hands)
                 
-                # Crop hand image
-                hand_crop = self.hand_detector.crop_hand(frame, hand, self.img_size)
+                # 2. Tebak hurufnya berdasarkan gabungan 2 tangan
+                letter, confidence = self.landmark_classifier.classify(combined_features)
                 
-                # Get validated prediction with full pipeline
-                letter, confidence, is_accepted, status = self.get_validated_prediction(
-                    hand_crop, hand.landmarks
-                )
+                # (Sisa logic lainnya kayak gesture stability & temporal streak tetep sama)
+                is_stable = True # Ganti logic lu kalau butuh cek stabilitas 2 tangan
+                is_consistent, streak, avg_conf = self.check_temporal_consistency(letter, confidence)
+                
+                is_accepted = is_consistent and is_stable
+                status = "accepted" if is_accepted else f"streak {streak}/{self.REQUIRED_STREAK}"
                 
                 self.current_letter = letter
-                self.current_confidence = confidence
+                self.current_confidence = avg_conf
                 self.validation_status = status
                 
-                # Only add to text buffer if accepted by validation pipeline
                 if is_accepted:
-                    finalized = self.text_buffer.add_letter(letter, confidence)
+                    finalized = self.text_buffer.add_letter(letter, avg_conf)
                     if finalized and self.speech_engine:
-                        threading.Thread(target=self.speech_engine.speak_word, args=(finalized,), daemon=True).start()
+                        threading.Thread(target=self.speech_engine.speak, args=(finalized,), daemon=True).start()
                 
-                # Update state
                 self.current_word = self.text_buffer.get_current_word()
                 self.sentence = self.text_buffer.get_sentence()
                 self.pending_info = self.text_buffer.get_pending_info()
                 
-                # Draw bounding box - color based on validation status
-                if is_accepted:
-                    color = (0, 255, 0)  # Green - accepted
-                elif "streak" in status:
-                    color = (0, 255, 255)  # Yellow - building streak
-                else:
-                    color = (0, 100, 255)  # Orange/Red - rejected
-                
-                cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
-                
-                # Draw letter
-                cv2.rectangle(frame, (x, y - 50), (x + 60, y), color, -1)
-                cv2.putText(frame, letter, (x + 10, y - 10),
-                           cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), 3)
-                
-                # Draw confidence
-                cv2.putText(frame, f"{confidence:.0%}", (x + 70, y - 20),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
-                
-                # Draw validation status
-                cv2.putText(frame, status, (x, y + h + 30),
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
-                
-                # Draw progress bar for temporal streak
-                if "streak" in status:
-                    streak_count = len(self.temporal_streak)
-                    bar_x = x
-                    bar_y = y + h + 45
-                    bar_w = 100
-                    bar_h = 15
-                    progress = min(streak_count / self.REQUIRED_STREAK, 1.0)
+                # 3. Gambar kotak untuk SETIAP tangan yang kedetect
+                for i, hand in enumerate(hands): 
+                    x, y, w, h = hand.bbox
+                    color = (0, 255, 0) if is_accepted else (0, 255, 255) if "streak" in status else (0, 100, 255)
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), color, 3)
                     
-                    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
-                    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + int(bar_w * progress), bar_y + bar_h), color, -1)
-                    cv2.putText(frame, f"Hold: {streak_count}/{self.REQUIRED_STREAK}", 
-                               (bar_x + 5, bar_y + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-                
-                # Draw text buffer progress bar
-                pending_letter, pending_count, required = self.pending_info
-                if pending_letter and required > 0:
-                    bar_x = x
-                    bar_y = y + h + 65
-                    bar_w = 100
-                    bar_h = 15
-                    progress = min(pending_count / required, 1.0)
-                    
-                    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + bar_w, bar_y + bar_h), (60, 60, 60), -1)
-                    accept_color = (0, 255, 0) if progress >= 1.0 else (255, 200, 100)
-                    cv2.rectangle(frame, (bar_x, bar_y), (bar_x + int(bar_w * progress), bar_y + bar_h), accept_color, -1)
-                    cv2.putText(frame, f"Buffer: {pending_count}/{required}", 
-                               (bar_x + 5, bar_y + 12), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
+                    # Tulis huruf dan status cuma di tangan pertama aja biar layar ga penuh
+                    if i == 0:  # <--- Ganti jadi ngecek urutan index (0 = tangan pertama)
+                        cv2.rectangle(frame, (x, y - 50), (x + 60, y), color, -1)
+                        cv2.putText(frame, letter, (x + 10, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 0, 0), 3)
+                        cv2.putText(frame, f"{avg_conf:.0%}", (x + 70, y - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
+                        cv2.putText(frame, status, (x, y + h + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+
             else:
                 self.current_letter = ""
                 self.current_confidence = 0.0
