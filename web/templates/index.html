@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Penerjemah Bahasa Isyarat ASL</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <h1 class="logo">Bahasa Isyarat ASL</h1>
+                <span class="subtitle">Terjemahkan isyarat tangan secara langsung</span>
+            </div>
+            <div class="header-status">
+                <span class="status-dot" id="statusDot"></span>
+                <span class="status-text" id="statusText">Terhubung</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Video Section -->
+            <section class="video-section">
+                <div class="video-container">
+                    <img id="videoFeed" src="/video_feed" alt="Kamera">
+                    <div class="video-overlay">
+                        <div class="detection-info" id="detectionInfo">
+                            <span class="detected-letter" id="detectedLetter">-</span>
+                            <span class="confidence" id="confidence">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tips (Moved below video) -->
+                <div class="tips-panel" style="margin-top: 1.5rem;">
+                    <h3>Cara Mendapat Hasil Terbaik</h3>
+                    <ul class="tips-list">
+                        <li>Tahan setiap isyarat dengan stabil beberapa saat</li>
+                        <li>Pastikan pencahayaan ruangan cukup terang</li>
+                        <li>Posisikan tangan di tengah layar kamera</li>
+                        <li>Tunggu bar hijau penuh sebelum ganti isyarat</li>
+                    </ul>
+                </div>
+            </section>
+
+            <!-- Controls Section -->
+            <section class="controls-section">
+                <!-- Translation Output -->
+                <div class="output-panel">
+                    <div class="output-header">
+                        <h2>Hasil Terjemahan</h2>
+                        <div class="output-actions">
+                            <button class="btn btn-secondary" id="btnClear" title="Hapus semua">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                                </svg>
+                                Hapus
+                            </button>
+                            <button class="btn btn-primary" id="btnSpeak" title="Bacakan teks">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                    <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/>
+                                </svg>
+                                Bacakan
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="current-word">
+                        <label>Sedang diketik</label>
+                        <div class="word-display" id="currentWord">-</div>
+                    </div>
+                    
+                    <div class="sentence-output">
+                        <label>Kalimat lengkap</label>
+                        <div class="sentence-display" id="sentenceDisplay">Tunjukkan isyarat tangan ke kamera untuk mulai...</div>
+                    </div>
+                    
+                    <div class="progress-container" id="progressContainer">
+                        <label>Status pengenalan</label>
+                        <div class="progress-bar">
+                            <div class="progress-fill" id="progressFill"></div>
+                            <span class="progress-text" id="progressText">Menunggu isyarat...</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Auto Speak Status -->
+                    <div class="auto-speak-status" id="autoSpeakStatus">
+                        <label>Pembacaan otomatis: <span id="autoSpeakTimer">Menunggu kalimat...</span></label>
+                    </div>
+                </div>
+
+                <!-- Mode Selection -->
+                <div class="mode-panel">
+                    <h3>Pilih Kecepatan</h3>
+                    <div class="mode-buttons">
+                        <button class="mode-btn" data-mode="instant">
+                            <span class="mode-name">Cepat</span>
+                            <span class="mode-desc">Respons langsung</span>
+                        </button>
+                        <button class="mode-btn active" data-mode="balanced">
+                            <span class="mode-name">Normal</span>
+                            <span class="mode-desc">Seimbang & akurat</span>
+                        </button>
+                        <button class="mode-btn" data-mode="accurate">
+                            <span class="mode-name">Teliti</span>
+                            <span class="mode-desc">Lebih presisi</span>
+                        </button>
+                        <button class="mode-btn" data-mode="strict">
+                            <span class="mode-name">Sangat Teliti</span>
+                            <span class="mode-desc">Paling akurat</span>
+                        </button>
+                    </div>
+                </div>
+
+
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>Sistem Penerjemah Bahasa Isyarat ASL</p>
+        </footer>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
