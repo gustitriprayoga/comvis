@@ -1,12 +1,15 @@
 <!DOCTYPE html>
 <html lang="id">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Penerjemah Bahasa Isyarat BISINDO</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
 </head>
+
 <body>
     <div class="app-container">
         <!-- Header -->
@@ -55,30 +58,35 @@
                         <h2>Hasil Terjemahan</h2>
                         <div class="output-actions">
                             <button class="btn btn-secondary" id="btnClear" title="Hapus semua">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path
+                                        d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
                                 </svg>
                                 Hapus
                             </button>
                             <button class="btn btn-primary" id="btnSpeak" title="Bacakan teks">
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                    <path d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07"/>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                    stroke-width="2">
+                                    <path
+                                        d="M11 5L6 9H2v6h4l5 4V5zM19.07 4.93a10 10 0 010 14.14M15.54 8.46a5 5 0 010 7.07" />
                                 </svg>
                                 Bacakan
                             </button>
                         </div>
                     </div>
-                    
+
                     <div class="current-word">
                         <label>Sedang diketik</label>
                         <div class="word-display" id="currentWord">-</div>
                     </div>
-                    
+
                     <div class="sentence-output">
                         <label>Kalimat lengkap</label>
-                        <div class="sentence-display" id="sentenceDisplay">Tunjukkan isyarat tangan ke kamera untuk mulai...</div>
+                        <div class="sentence-display" id="sentenceDisplay">Tunjukkan isyarat tangan ke kamera untuk
+                            mulai...</div>
                     </div>
-                    
+
                     <div class="progress-container" id="progressContainer">
                         <label>Status pengenalan</label>
                         <div class="progress-bar">
@@ -86,7 +94,7 @@
                             <span class="progress-text" id="progressText">Menunggu isyarat...</span>
                         </div>
                     </div>
-                    
+
                     <!-- Auto Speak Status -->
                     <div class="auto-speak-status" id="autoSpeakStatus">
                         <label>Pembacaan otomatis: <span id="autoSpeakTimer">Menunggu kalimat...</span></label>
@@ -116,9 +124,34 @@
                     </div>
                 </div>
 
+                <div class="evaluation-panel">
+                    <h3>Evaluasi Performa AI</h3>
+                    <div class="eval-buttons">
+                        <button class="btn btn-secondary" onclick="showModal('report_engine_fast_mobilenet.png')">Report
+                            MobileNet</button>
+                        <button class="btn btn-secondary"
+                            onclick="showModal('confusion_matrix_engine_fast_mobilenet.png')">Matrix MobileNet</button>
+                        <button class="btn btn-secondary"
+                            onclick="showModal('report_engine_accurate_efficientnet.png')">Report
+                            EfficientNet</button>
+                        <button class="btn btn-secondary"
+                            onclick="showModal('confusion_matrix_engine_accurate_efficientnet.png')">Matrix
+                            EfficientNet</button>
+                    </div>
+                </div>
+
+                <div id="imageModal" class="modal-overlay" onclick="closeModal()">
+                    <div class="modal-content" onclick="event.stopPropagation()">
+                        <span class="close-modal" onclick="closeModal()">&times;</span>
+                        <img id="modalImage" src="" alt="Hasil Evaluasi">
+                    </div>
+                </div>
+
 
             </section>
         </main>
+
+
 
         <!-- Footer -->
         <footer class="footer">
@@ -128,4 +161,5 @@
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
+
 </html>

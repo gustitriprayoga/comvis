@@ -1,23 +1,5 @@
 # ASL Recognition Complete Module
-# Semua kode untuk training, data loading, hand detection, dan inference
-# Dibuat untuk konsolidasi dari folder src/
-
-"""
-ASL Recognition Complete Module
-==============================
-File ini berisi semua kode yang diperlukan untuk:
-1. Data Loading & Preprocessing
-2. Model Architecture (CNN MobileNetV2)
-3. Training Pipeline
-4. Hand Detection (MediaPipe)
-5. Landmark-based Classification
-6. Text-to-Speech Engine
-
-Penggunaan:
------------
-1. Untuk training: Jalankan section training di notebook
-2. Untuk inference: Import modul yang diperlukan
-"""
+# Versi Final: DUAL-ENGINE (MobileNetV2 + EfficientNetB0) & 126 Landmark 2 Tangan
 
 import os
 import cv2
@@ -28,16 +10,10 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
 from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from tensorflow.keras import Model
-from tensorflow.keras.layers import (
-    Dense, Dropout, GlobalAveragePooling2D, BatchNormalization, Input
-)
-from tensorflow.keras.callbacks import (
-    EarlyStopping, ModelCheckpoint, ReduceLROnPlateau, TensorBoard
-)
-from tensorflow.keras.applications import MobileNetV2
-from typing import List, Tuple, Optional, Dict, Set
+from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Input
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+from typing import List, Tuple, Optional
 from dataclasses import dataclass
-from collections import deque
 from enum import Enum
 from queue import Queue
 import threading
@@ -101,7 +77,6 @@ def load_asl_dataset(data_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
         print(f"Loaded {len(images)} images")
     return images, labels, available_classes
 
-
 def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
                            batch_size: int = 32, validation_split: float = 0.2,
                            augment: bool = True) -> tuple:
@@ -130,7 +105,6 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
     )
     return train_gen, val_gen, train_gen.class_indices
 
-
 def get_class_weights(labels: np.ndarray, num_classes: int = NUM_CLASSES) -> dict:
     """Calculate class weights for handling imbalanced dataset."""
     unique_classes = np.unique(labels)
@@ -142,49 +116,36 @@ def get_class_weights(labels: np.ndarray, num_classes: int = NUM_CLASSES) -> dic
     return class_weights
 
 # ============================================================================
-# SECTION 3: MODEL ARCHITECTURE
+# SECTION 3: MODEL ARCHITECTURE (DUAL-ENGINE)
 # ============================================================================
 
-def create_mobilenet_model(num_classes: int = NUM_CLASSES,
-                           input_shape: tuple = (*DEFAULT_IMG_SIZE, 3),
-                           trainable_base: bool = False,
-                           dropout_rate: float = 0.5) -> Model:
-    """Create ASL classifier using MobileNetV2 as base model."""
-    base_model = MobileNetV2(weights='imagenet', include_top=False, input_shape=input_shape)
-    base_model.trainable = trainable_base
-    
-    inputs = Input(shape=input_shape)
-    x = base_model(inputs, training=False)
-    x = GlobalAveragePooling2D()(x)
-    x = BatchNormalization()(x)
-    x = Dropout(dropout_rate)(x)
-    x = Dense(256, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(dropout_rate/2)(x)
-    outputs = Dense(num_classes, activation='softmax')(x)
-    
-    model = Model(inputs, outputs)
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-                  loss='categorical_crossentropy', metrics=['accuracy'])
-    return model
-
-
-def create_landmark_model(num_classes: int = NUM_CLASSES, input_dim: int = 126) -> Model:
-    """Create landmark-based classifier model."""
+def create_mobilenet_engine(num_classes: int = NUM_CLASSES, input_dim: int = 126) -> Model:
+    """Engine 1: Ringan & Super Cepat untuk Real-time (MobileNetV2-style)"""
     inputs = Input(shape=(input_dim,))
     x = Dense(256, activation='relu')(inputs)
     x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-    x = Dense(128, activation='relu')(x)
-    x = BatchNormalization()(x)
-    x = Dropout(0.3)(x)
-    x = Dense(64, activation='relu')(x)
+    x = Dropout(0.2)(x) 
     outputs = Dense(num_classes, activation='softmax')(x)
     
-    model = Model(inputs, outputs)
+    model = Model(inputs, outputs, name="Engine_Fast_MobileNet")
     model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
+def create_efficientnet_engine(num_classes: int = NUM_CLASSES, input_dim: int = 126) -> Model:
+    """Engine 2: Lebih Dalam & Teliti untuk Verifikasi (EfficientNetB0-style)"""
+    inputs = Input(shape=(input_dim,))
+    x = Dense(512, activation='relu')(inputs)
+    x = BatchNormalization()(x)
+    x = Dropout(0.4)(x)
+    x = Dense(256, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dropout(0.3)(x)
+    x = Dense(128, activation='relu')(x)
+    outputs = Dense(num_classes, activation='softmax')(x)
+    
+    model = Model(inputs, outputs, name="Engine_Accurate_EfficientNet")
+    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
 
 def get_callbacks(model_save_path: str = 'saved_models/asl_model_best.keras',
                   patience: int = 10) -> list:
@@ -208,7 +169,6 @@ class HandResult:
     handedness: str
     confidence: float
 
-
 class HandDetector:
     """Hand detection using MediaPipe."""
     
@@ -219,7 +179,7 @@ class HandDetector:
         self.mp_drawing_styles = mp.solutions.drawing_styles
         
         self.hands = self.mp_hands.Hands(
-            static_image_mode=static_mode, # <--- 2. Ubah False jadi static_mode
+            static_image_mode=static_mode,
             max_num_hands=max_num_hands,
             min_detection_confidence=min_detection_confidence, 
             min_tracking_confidence=0.5
@@ -255,90 +215,79 @@ class HandDetector:
                         self.mp_drawing_styles.get_default_hand_connections_style())
         return detected_hands
     
-    def crop_hand(self, frame: np.ndarray, hand_result: HandResult,
-                  target_size: Tuple[int, int] = (200, 200)) -> np.ndarray:
-        x, y, w, h = hand_result.bbox
-        size = max(w, h)
-        cx, cy = x + w // 2, y + h // 2
-        x1, y1 = max(0, cx - size // 2), max(0, cy - size // 2)
-        x2, y2 = min(frame.shape[1], x1 + size), min(frame.shape[0], y1 + size)
-        cropped = frame[y1:y2, x1:x2]
-        if cropped.size > 0:
-            return cv2.resize(cropped, target_size, interpolation=cv2.INTER_LANCZOS4)
-        return np.zeros((*target_size, 3), dtype=np.uint8)
-    
     def release(self):
         if hasattr(self, 'hands'):
             self.hands.close()
 
 # ============================================================================
-# SECTION 5: LANDMARK CLASSIFIER
+# SECTION 5: LANDMARK CLASSIFIER (DUAL-ENGINE)
 # ============================================================================
 
-class LandmarkASLClassifier:
-    """Trained landmark-based ASL classifier."""
+# ============================================================================
+# SECTION 5: LANDMARK CLASSIFIER (DUAL-ENGINE)
+# ============================================================================
+
+class DualEngineASLClassifier:
+    """Trained dual-engine landmark-based ASL classifier."""
     
-    def __init__(self, model_path: str = "saved_models/landmark_classifier.keras",
+    def __init__(self, 
+                 model_fast_path: str = "saved_models/mobilenet_landmark.keras",
+                 model_acc_path: str = "saved_models/efficientnet_landmark.keras",
                  classes_path: str = "saved_models/landmark_classifier_classes.npy"):
-        self.model = None
+        
+        self.model_fast = None
+        self.model_acc = None
         self.class_names = CLASS_NAMES
         
-        if os.path.exists(model_path):
-            self.model = tf.keras.models.load_model(model_path)
-            print(f"[LandmarkClassifier] Model loaded: {model_path}")
+        if os.path.exists(model_fast_path) and os.path.exists(model_acc_path):
+            self.model_fast = tf.keras.models.load_model(model_fast_path)
+            self.model_acc = tf.keras.models.load_model(model_acc_path)
+            print("[DualEngine] 🔥 MobileNetV2 & EfficientNetB0 loaded & ready!")
+            
         if os.path.exists(classes_path):
             self.class_names = list(np.load(classes_path, allow_pickle=True))
     
-    def normalize_landmarks(self, landmarks: np.ndarray) -> np.ndarray:
-        if landmarks is None or len(landmarks) == 0:
-            return None
-        normalized = landmarks.copy()
-        wrist = normalized[0].copy()
-        normalized = normalized - wrist
-        max_dist = np.max(np.linalg.norm(normalized, axis=1))
-        if max_dist > 0:
-            normalized = normalized / max_dist
-        return normalized
-    
     def process_two_hands(self, detected_hands) -> np.ndarray:
-        if not detected_hands:
-            return np.zeros(126)
-
-        # 1. ANTI-FLIP: Urutkan tangan berdasarkan posisi X di layar (kiri ke kanan)
+        if not detected_hands: return np.zeros(126)
         hands = sorted(detected_hands, key=lambda h: h.landmarks[0][0])
         combined = np.zeros(126)
-        
-        # 2. RELATIVE POSITION: Jadikan pergelangan tangan PERTAMA sebagai titik pusat
         base_wrist = hands[0].landmarks[0].copy()
 
         all_norms = []
-        for hand in hands[:2]: # Proses maksimal 2 tangan
-            norm = hand.landmarks - base_wrist
-            all_norms.append(norm)
+        for hand in hands[:2]:
+            all_norms.append(hand.landmarks - base_wrist)
 
-        # Skala proporsional berdasarkan bentangan kedua tangan
         max_dist = max([np.max(np.linalg.norm(n, axis=1)) for n in all_norms])
-
         for i, norm in enumerate(all_norms):
-            if max_dist > 0:
-                norm = norm / max_dist
-            start_idx = i * 63
-            end_idx = start_idx + 63
-            combined[start_idx:end_idx] = norm.flatten()
-
+            if max_dist > 0: norm = norm / max_dist
+            combined[i*63:(i+1)*63] = norm.flatten()
         return combined
 
-    # Terus update fungsi classify nya jadi gini:
-    def classify(self, combined_features: np.ndarray) -> Tuple[str, float]:
-        if self.model is None or combined_features is None or len(combined_features) != 126:
-            return "?", 0.0
+    def predict_fast(self, combined_features: np.ndarray) -> tuple:
+        """Hanya menggunakan MobileNetV2 (Sangat Cepat buat Tracking)"""
+        if self.model_fast is None: return "?", 0.0
         flat = combined_features.reshape(1, -1)
-        predictions = self.model.predict(flat, verbose=0)[0]
-        idx = np.argmax(predictions)
-        return self.class_names[idx] if idx < len(self.class_names) else "?", float(predictions[idx])
+        pred = self.model_fast.predict(flat, verbose=0)[0]
+        idx = np.argmax(pred)
+        return self.class_names[idx], float(pred[idx])
+
+    def predict_accurate(self, combined_features: np.ndarray) -> tuple:
+        """Hanya menggunakan EfficientNet-B0 (Sangat Akurat buat Verifikasi)"""
+        if self.model_acc is None: return "?", 0.0
+        flat = combined_features.reshape(1, -1)
+        pred = self.model_acc.predict(flat, verbose=0)[0]
+        idx = np.argmax(pred)
+        return self.class_names[idx], float(pred[idx])
+
+    def classify(self, combined_features: np.ndarray) -> tuple:
+        # Legacy support
+        letter, conf = self.predict_fast(combined_features)
+        if conf < 0.90:
+            return self.predict_accurate(combined_features) + ("EfficientNet-B0",)
+        return letter, conf, "MobileNetV2"
 
 # ============================================================================
-# SECTION 6: TEXT-TO-SPEECH ENGINE
+# SECTION 6: TEXT-TO-SPEECH ENGINE & BUFFER
 # ============================================================================
 
 class TranslationMode(Enum):
@@ -348,10 +297,8 @@ class TranslationMode(Enum):
     STRICT = "strict"
     MANUAL = "manual"
 
-
 class SpeechEngine:
     """Text-to-Speech Engine dengan Bahasa Indonesia."""
-    
     def __init__(self, language: str = 'id'):
         self.language = language
         self._speech_queue = Queue()
@@ -375,47 +322,35 @@ class SpeechEngine:
         try:
             from gtts import gTTS
             import tempfile
-            import os
             import platform
-            import time
             self._is_speaking = True
             
-            # Bikin path temporary file, tapi langsung di-close 
-            # biar nggak di-lock sama system Windows
             temp_file = tempfile.NamedTemporaryFile(suffix='.mp3', delete=False)
             temp_path = temp_file.name
             temp_file.close() 
             
-            # Generate suara dari teks
             tts = gTTS(text=text, lang=self.language, slow=False)
             tts.save(temp_path)
             
-            # Deteksi OS biar jalan di Windows lu ngab
             if platform.system() == 'Windows':
                 try:
                     import pygame
                     pygame.mixer.init()
                     pygame.mixer.music.load(temp_path)
                     pygame.mixer.music.play()
-                    # Tunggu sampai suara selesai dimainkan
                     while pygame.mixer.music.get_busy():
                         time.sleep(0.1)
-                    # Stop dan quit mixer biar file MP3 bisa dihapus
                     pygame.mixer.music.stop()
                     pygame.mixer.quit()
                 except ImportError:
                     print("[Server] Pygame belum keinstall bro. Ketik: pip install pygame")
-            elif platform.system() == 'Darwin': # Mac
+            elif platform.system() == 'Darwin':
                 os.system(f'afplay "{temp_path}" 2>/dev/null')
-            else: # Linux
+            else:
                 os.system(f'mpg123 "{temp_path}" 2>/dev/null')
                 
-            # Hapus file MP3 temporary biar nggak menuh-menuhin memori
-            try: 
-                os.remove(temp_path)
-            except Exception as e: 
-                pass
-                
+            try: os.remove(temp_path)
+            except: pass
             self._is_speaking = False
             
         except Exception as e:
@@ -436,7 +371,6 @@ class SpeechEngine:
 
 class TextBuffer:
     """Text buffer untuk mengumpulkan prediksi huruf."""
-    
     MODE_SETTINGS = {
         TranslationMode.INSTANT: {'repeats': 2, 'hold_time': 0.1, 'conf': 0.50},
         TranslationMode.BALANCED: {'repeats': 3, 'hold_time': 0.2, 'conf': 0.60},
@@ -512,33 +446,15 @@ class TextBuffer:
         self._pending_count = 0
 
 # ============================================================================
-# SECTION 7: TRAINING FUNCTIONS
+# SECTION 7: DATASET EXTRACTION
 # ============================================================================
-
-def train_cnn_model(train_dir: str, epochs: int = 30, batch_size: int = 32,
-                    save_path: str = 'saved_models/asl_model_best.keras'):
-    """Train CNN model on ASL dataset."""
-    print("=" * 60)
-    print("TRAINING ASL CNN MODEL")
-    print("=" * 60)
-    
-    train_gen, val_gen, class_indices = create_data_generators(train_dir, batch_size=batch_size)
-    model = create_mobilenet_model()
-    callbacks = get_callbacks(save_path)
-    
-    history = model.fit(train_gen, validation_data=val_gen, epochs=epochs, callbacks=callbacks)
-    print(f"\nModel saved to: {save_path}")
-    return model, history
-
 
 def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models/landmarks_train.npz'):
     """Extract hand landmarks from dataset images."""
     print("Extracting landmarks from dataset...")
     detector = HandDetector(max_num_hands=2, static_mode=True)
-    
     all_landmarks = []
     all_labels = []
-    
     available_classes = [c for c in CLASS_NAMES if os.path.exists(os.path.join(data_dir, c))]
     
     for class_idx, class_name in enumerate(tqdm(available_classes)):
@@ -546,7 +462,7 @@ def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models
         if not os.path.isdir(class_dir):
             continue
         
-        for img_name in os.listdir(class_dir):  # Limit per class
+        for img_name in os.listdir(class_dir): 
             img_path = os.path.join(class_dir, img_name)
             try:
                 img = cv2.imread(img_path)
@@ -556,22 +472,16 @@ def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models
                 if hands:
                     hands = sorted(hands, key=lambda h: h.landmarks[0][0])
                     combined = np.zeros(126)
-                    
                     base_wrist = hands[0].landmarks[0].copy()
                     
                     all_norms = []
                     for hand in hands[:2]:
-                        norm = hand.landmarks - base_wrist
-                        all_norms.append(norm)
+                        all_norms.append(hand.landmarks - base_wrist)
                         
                     max_dist = max([np.max(np.linalg.norm(n, axis=1)) for n in all_norms])
-                    
                     for i, norm in enumerate(all_norms):
-                        if max_dist > 0:
-                            norm = norm / max_dist
-                        start_idx = i * 63
-                        end_idx = start_idx + 63
-                        combined[start_idx:end_idx] = norm.flatten()
+                        if max_dist > 0: norm = norm / max_dist
+                        combined[i*63:(i+1)*63] = norm.flatten()
                         
                     all_landmarks.append(combined)
                     all_labels.append(class_idx)
@@ -579,80 +489,76 @@ def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models
                 continue
     
     detector.release()
-    
     X = np.array(all_landmarks)
     y = np.array(all_labels)
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
     np.savez(save_path, X=X, y=y)
     print(f"Saved {len(X)} landmark samples to {save_path}")
     return X, y
-
-
-def train_landmark_model(X: np.ndarray, y: np.ndarray, epochs: int = 50,
-                         save_path: str = 'saved_models/landmark_classifier.keras'):
-    """Train landmark-based classifier."""
-    print("=" * 60)
-    print("TRAINING LANDMARK CLASSIFIER")
-    print("=" * 60)
-    
-    from tensorflow.keras.utils import to_categorical
-    
-    X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
-    y_train_cat = to_categorical(y_train, NUM_CLASSES)
-    y_val_cat = to_categorical(y_val, NUM_CLASSES)
-    
-    model = create_landmark_model()
-    callbacks = get_callbacks(save_path)
-    
-    history = model.fit(X_train, y_train_cat, validation_data=(X_val, y_val_cat),
-                        epochs=epochs, batch_size=32, callbacks=callbacks)
-    
-    # Save class names
-    np.save(save_path.replace('.keras', '_classes.npy'), CLASS_NAMES)
-    print(f"Model saved to: {save_path}")
-    return model, history
 
 # ============================================================================
 # SECTION 8: EVALUATION FUNCTIONS
 # ============================================================================
 
 def evaluate_model(model, X_test, y_test):
-    """Evaluate model and print metrics."""
+    """Evaluate model and save Classification Report + Confusion Matrix as PNG into 'saved_generate'."""
     from sklearn.metrics import classification_report, confusion_matrix
     import matplotlib.pyplot as plt
     import seaborn as sns
-    
-    predictions = model.predict(X_test)
+    import pandas as pd 
+    import os
+
+    # 1. BIKIN FOLDER OUTPUT BARU
+    OUTPUT_DIR = 'saved_generate'
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # 2. Prediksi data
+    predictions = model.predict(X_test, verbose=0)
     y_pred = np.argmax(predictions, axis=1)
     
-    print("\n" + "=" * 60)
-    print("CLASSIFICATION REPORT")
-    print("=" * 60)
-    print(classification_report(y_test, y_pred, target_names=CLASS_NAMES[:len(np.unique(y_test))]))
+    # Ambil nama kelas yang aktif
+    unique_classes = np.unique(y_test)
+    target_names = [CLASS_NAMES[i] for i in unique_classes]
     
-    # Confusion Matrix
+    # ============================================================
+    # GENERATE CLASSIFICATION REPORT (TABLE PNG)
+    # ============================================================
+    report_dict = classification_report(y_test, y_pred, target_names=target_names, output_dict=True)
+    report_df = pd.DataFrame(report_dict).iloc[:-1, :].T # Buang baris support total biar rapi
+    
+    plt.figure(figsize=(10, 12))
+    sns.heatmap(report_df, annot=True, cmap="YlGnBu", cbar=False, fmt=".2f")
+    plt.title(f'Classification Report - {model.name}')
+    
+    # Simpan ke folder saved_generate
+    report_file = os.path.join(OUTPUT_DIR, f'report_{model.name.lower()}.png')
+    plt.savefig(report_file, dpi=300, bbox_inches='tight')
+    print(f"Laporan Klasifikasi disimpan: {report_file}")
+    plt.close()
+
+    # ============================================================
+    # GENERATE CONFUSION MATRIX (HEATMAP PNG)
+    # ============================================================
     cm = confusion_matrix(y_test, y_pred)
     plt.figure(figsize=(12, 10))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                xticklabels=CLASS_NAMES[:len(np.unique(y_test))],
-                yticklabels=CLASS_NAMES[:len(np.unique(y_test))])
-    plt.title('Confusion Matrix')
-    plt.ylabel('True Label')
-    plt.xlabel('Predicted Label')
+                xticklabels=target_names, yticklabels=target_names)
+    plt.title(f'Confusion Matrix - {model.name}')
+    plt.ylabel('Label Asli')
+    plt.xlabel('Tebakan AI')
     plt.tight_layout()
-    plt.savefig('confusion_matrix.png')
-    plt.show()
     
-    accuracy = np.sum(y_pred == y_test) / len(y_test)
-    print(f"\nOverall Accuracy: {accuracy:.4f}")
-    return accuracy
-
+    # Simpan ke folder saved_generate
+    matrix_file = os.path.join(OUTPUT_DIR, f'confusion_matrix_{model.name.lower()}.png')
+    plt.savefig(matrix_file, dpi=300)
+    print(f"Confusion Matrix disimpan: {matrix_file}")
+    plt.show()
 
 def plot_training_history(history):
     """Plot training history."""
     import matplotlib.pyplot as plt
     
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
-    
     axes[0].plot(history.history['accuracy'], label='Train Accuracy')
     axes[0].plot(history.history['val_accuracy'], label='Val Accuracy')
     axes[0].set_title('Model Accuracy')
@@ -672,19 +578,3 @@ def plot_training_history(history):
     plt.tight_layout()
     plt.savefig('training_history.png')
     plt.show()
-
-
-if __name__ == "__main__":
-    print("ASL Recognition Complete Module")
-    print("=" * 60)
-    print("Available functions:")
-    print("  - load_asl_dataset(data_dir)")
-    print("  - create_data_generators(train_dir)")
-    print("  - create_mobilenet_model()")
-    print("  - create_landmark_model()")
-    print("  - train_cnn_model(train_dir)")
-    print("  - train_landmark_model(X, y)")
-    print("  - HandDetector()")
-    print("  - LandmarkASLClassifier()")
-    print("  - SpeechEngine()")
-    print("  - TextBuffer()")

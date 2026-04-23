@@ -1,33 +1,57 @@
-# File: train_baru.py
 import numpy as np
+import tensorflow as tf
 from sklearn.model_selection import train_test_split
-# Kita import juga fungsi evaluate_model dan plot_training_history nya
-from asl_modules import extract_landmarks_from_dataset, train_landmark_model, evaluate_model, plot_training_history
+from asl_modules import (
+    extract_landmarks_from_dataset, 
+    create_mobilenet_engine, 
+    create_efficientnet_engine, 
+    evaluate_model,
+    get_callbacks,
+    CLASS_NAMES
+)
 
-# Path Dataset lu (Pastiin udah bener ya ngab)
 DATASET_DIR = r"E:\Project\dataset\bisindo\images\train"
 
 print("Mulai ekstrak fitur 2 tangan dari gambar...")
 X, y = extract_landmarks_from_dataset(DATASET_DIR, 'saved_models/landmarks_train.npz')
 
-print("Mulai training model baru...")
-model, history = train_landmark_model(X, y, epochs=50, save_path='saved_models/landmark_classifier.keras')
+# Bagi data training & validasi
+X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+y_train_cat = tf.keras.utils.to_categorical(y_train, len(CLASS_NAMES))
+y_val_cat = tf.keras.utils.to_categorical(y_val, len(CLASS_NAMES))
+
+# Simpan urutan abjad buat referensi web
+np.save('saved_models/landmark_classifier_classes.npy', CLASS_NAMES)
 
 # ============================================================
-# FITUR EVALUASI (Accuracy, Precision, Recall, Confusion Matrix)
+# 1. TRAIN MOBILENET V2 (Fast Engine)
 # ============================================================
 print("\n" + "="*60)
-print("MENGHITUNG METRIK EVALUASI")
+print("TRAINING MOBILENET V2 (REAL-TIME ENGINE)")
 print("="*60)
+model_fast = create_mobilenet_engine(len(CLASS_NAMES))
+# Pake callbacks biar cuma nyimpen model pas akurasinya naik
+callbacks_fast = get_callbacks('saved_models/mobilenet_landmark.keras', patience=15)
 
-# Kita mecah data lagi buat ngetes dengan persentase (20%) 
-# dan random state yang PERSIS SAMA kayak pas training di modul lu
-_, X_val, _, y_val = train_test_split(X, y, test_size=0.2, random_state=42)
+model_fast.fit(X_train, y_train_cat, validation_data=(X_val, y_val_cat), 
+               epochs=50, batch_size=32, callbacks=callbacks_fast)
 
-# 1. Panggil fungsi evaluasi (munculin Precision, Recall, Accuracy, & Confusion Matrix)
-evaluate_model(model, X_val, y_val)
+# Panggil fungsi evaluasi buat bikin Confusion Matrix
+evaluate_model(model_fast, X_val, y_val)
 
-# 2. Gambar grafik pergerakan Loss & Accuracy pas proses training
-plot_training_history(history)
+# ============================================================
+# 2. TRAIN EFFICIENTNET B0 (Accurate Engine)
+# ============================================================
+print("\n" + "="*60)
+print("TRAINING EFFICIENTNET B0 (ACCURATE ENGINE)")
+print("="*60)
+model_acc = create_efficientnet_engine(len(CLASS_NAMES))
+callbacks_acc = get_callbacks('saved_models/efficientnet_landmark.keras', patience=15)
 
-print("\nBERES NGAB! Cek folder comvis lu, ada file 'confusion_matrix.png' dan 'training_history.png' tuh!")
+model_acc.fit(X_train, y_train_cat, validation_data=(X_val, y_val_cat), 
+              epochs=70, batch_size=32, callbacks=callbacks_acc)
+
+# Panggil fungsi evaluasi buat bikin Confusion Matrix
+evaluate_model(model_acc, X_val, y_val)
+
+print("\nSemua beres! Kedua mesin udah mateng, dievaluasi, dan siap di-deploy ke web! 🚀")

@@ -14,17 +14,17 @@ class ASLApp {
         this.pollInterval = null;
         this.pollRate = 100;
         this.isConnected = false;
-        
+
         // Auto-speak settings
         this.autoSpeakEnabled = true;
         this.autoSpeakDelay = 1000; // 1 detik
-        
+
         // Tracking
         this.lastSpokenSentence = '';     // Kalimat terakhir yang sudah dibaca
         this.sentenceChangedTime = 0;     // Waktu terakhir kalimat berubah
         this.isTyping = false;            // Apakah sedang mengetik (currentWord ada isinya)
         this.hasStarted = false;          // Flag untuk welcome message
-        
+
         this.elements = {
             statusDot: document.getElementById('statusDot'),
             statusText: document.getElementById('statusText'),
@@ -39,21 +39,21 @@ class ASLApp {
             modeButtons: document.querySelectorAll('.mode-btn'),
             autoSpeakTimer: document.getElementById('autoSpeakTimer')
         };
-        
+
         this.init();
     }
-    
+
     init() {
         this.bindEvents();
         this.startPolling();
         this.setConnected(true);
         this.startAutoSpeakCheck();
     }
-    
+
     bindEvents() {
         this.elements.btnClear.addEventListener('click', () => this.clearText());
         this.elements.btnSpeak.addEventListener('click', () => this.speakText());
-        
+
         this.elements.modeButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 const mode = btn.dataset.mode;
@@ -62,7 +62,7 @@ class ASLApp {
                 btn.classList.add('active');
             });
         });
-        
+
         document.addEventListener('keydown', (e) => {
             if (e.key === 's' || e.key === 'S') {
                 this.speakText();
@@ -80,18 +80,18 @@ class ASLApp {
             }
         });
     }
-    
+
     startPolling() {
         this.pollInterval = setInterval(() => this.fetchState(), this.pollRate);
     }
-    
+
     stopPolling() {
         if (this.pollInterval) {
             clearInterval(this.pollInterval);
             this.pollInterval = null;
         }
     }
-    
+
     /**
      * AUTO-SPEAK - SIMPLIFIED LOGIC
      * =============================
@@ -102,10 +102,10 @@ class ASLApp {
     startAutoSpeakCheck() {
         setInterval(() => {
             if (!this.autoSpeakEnabled) return;
-            
+
             const sentence = this.elements.sentenceDisplay.textContent;
             const isPlaceholder = sentence === 'Mulai bahasa isyarat untuk menerjemahkan...';
-            
+
             // Jika sentence berubah, reset timer
             if (sentence !== this.lastSentence) {
                 this.lastSentence = sentence;
@@ -113,21 +113,21 @@ class ASLApp {
                 this.speakScheduled = false;
                 console.log('Sentence berubah:', sentence);
             }
-            
+
             // Hitung waktu sejak perubahan terakhir
             const timeSinceChange = Date.now() - this.sentenceChangedTime;
-            
+
             // Kondisi untuk speak:
             // 1. Bukan placeholder
             // 2. Sentence berbeda dari yang terakhir dibaca
             // 3. Sudah 1 detik sejak perubahan
             // 4. Belum di-schedule
             const canSpeak = !isPlaceholder &&
-                            sentence.trim() !== '' &&
-                            sentence !== this.lastSpokenSentence &&
-                            timeSinceChange >= this.autoSpeakDelay &&
-                            !this.speakScheduled;
-            
+                sentence.trim() !== '' &&
+                sentence !== this.lastSpokenSentence &&
+                timeSinceChange >= this.autoSpeakDelay &&
+                !this.speakScheduled;
+
             // Update display
             if (isPlaceholder || sentence.trim() === '') {
                 this.elements.autoSpeakTimer.textContent = 'Menunggu kalimat...';
@@ -141,30 +141,30 @@ class ASLApp {
                     this.elements.autoSpeakTimer.textContent = 'Sedang membaca...';
                 }
             }
-            
+
             // AUTO-SPEAK
             if (canSpeak) {
                 this.speakScheduled = true;
                 console.log('AUTO-SPEAK:', sentence);
                 this.speakSentence(sentence);
                 this.lastSpokenSentence = sentence;
-                
+
                 setTimeout(() => {
                     this.elements.autoSpeakTimer.textContent = 'Selesai dibacakan';
                 }, 100);
             }
-            
+
         }, 100);
     }
-    
+
     async fetchState() {
         try {
             const response = await fetch('/api/state');
             if (!response.ok) throw new Error('API error');
-            
+
             const state = await response.json();
             this.updateUI(state);
-            
+
             if (!this.isConnected) {
                 this.setConnected(true);
             }
@@ -173,17 +173,17 @@ class ASLApp {
             this.setConnected(false);
         }
     }
-    
+
     updateUI(state) {
         const letter = state.letter || '-';
         const confidence = state.confidence || 0;
-        
+
         this.elements.detectedLetter.textContent = letter;
         this.elements.confidence.textContent = `${Math.round(confidence * 100)}%`;
-        
+
         const validation = state.validation || {};
         const validationStatus = validation.status || 'waiting';
-        
+
         if (validationStatus === 'accepted') {
             this.elements.detectedLetter.style.color = '#22c55e';
         } else if (validationStatus.includes('streak')) {
@@ -193,12 +193,12 @@ class ASLApp {
         } else {
             this.elements.detectedLetter.style.color = '#6b6b7b';
         }
-        
+
         const word = state.word || '-';
         this.elements.currentWord.textContent = word || '-';
-        
+
         const sentence = state.sentence || '';
-        
+
         // Logic welcome message: hanya muncul pertama kali
         if (sentence && sentence.trim() !== '') {
             this.elements.sentenceDisplay.textContent = sentence;
@@ -210,14 +210,14 @@ class ASLApp {
                 this.elements.sentenceDisplay.classList.add('text-muted');
             } else {
                 // Jika sudah pernah mulai tapi sekarang kosong (misal dihapus), biarkan kosong
-                this.elements.sentenceDisplay.textContent = ''; 
+                this.elements.sentenceDisplay.textContent = '';
                 this.elements.sentenceDisplay.classList.remove('text-muted');
             }
         }
-        
+
         const streak = validation.streak || 0;
         const requiredStreak = validation.required_streak || 5;
-        
+
         if (validationStatus.includes('streak') && streak > 0) {
             const progress = Math.min((streak / requiredStreak) * 100, 100);
             this.elements.progressFill.style.width = `${progress}%`;
@@ -233,7 +233,7 @@ class ASLApp {
                 const progress = Math.min((pending.count / pending.required) * 100, 100);
                 this.elements.progressFill.style.width = `${progress}%`;
                 this.elements.progressText.textContent = `${pending.letter}: ${pending.count}/${pending.required}`;
-                
+
                 if (progress >= 100) {
                     this.elements.progressFill.style.background = 'linear-gradient(90deg, #22c55e, #4ade80)';
                 } else {
@@ -255,10 +255,10 @@ class ASLApp {
             }
         }
     }
-    
+
     setConnected(connected) {
         this.isConnected = connected;
-        
+
         if (connected) {
             this.elements.statusDot.classList.remove('offline');
             this.elements.statusText.textContent = 'Terhubung';
@@ -267,7 +267,7 @@ class ASLApp {
             this.elements.statusText.textContent = 'Terputus';
         }
     }
-    
+
     async setMode(mode) {
         try {
             await fetch('/api/mode', {
@@ -279,7 +279,7 @@ class ASLApp {
             console.error('Error:', error);
         }
     }
-    
+
     async clearText() {
         try {
             await fetch('/api/clear', { method: 'POST' });
@@ -293,7 +293,7 @@ class ASLApp {
             console.error('Error:', error);
         }
     }
-    
+
     async speakText() {
         try {
             await fetch('/api/speak', { method: 'POST' });
@@ -301,7 +301,7 @@ class ASLApp {
             console.error('Error:', error);
         }
     }
-    
+
     // Baca kalimat sebagai KATA (bukan per huruf)
     // "A K U" -> dibaca "AKU"
     async speakSentence(sentence) {
@@ -320,3 +320,18 @@ class ASLApp {
 document.addEventListener('DOMContentLoaded', () => {
     window.aslApp = new ASLApp();
 });
+
+// Fungsi untuk memunculkan modal gambar
+function showModal(filename) {
+    const modal = document.getElementById('imageModal');
+    const modalImg = document.getElementById('modalImage');
+
+    // Kita arahkan ke endpoint Flask yang melayani folder saved_generate
+    modalImg.src = "/get_generated_image/" + filename;
+    modal.style.display = "flex";
+}
+
+// Fungsi untuk menutup modal
+function closeModal() {
+    document.getElementById('imageModal').style.display = "none";
+}
