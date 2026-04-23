@@ -576,5 +576,5 @@ def plot_training_history(history):
     axes[1].grid(True)
     
     plt.tight_layout()
-    plt.savefig('training_history.png')
+    plt.savefig('saved_models/training_history.png')
     plt.show()
