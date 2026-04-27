@@ -10,8 +10,8 @@ from asl_modules import (
     CLASS_NAMES
 )
 
-# DATASET_DIR = r"E:\Project\dataset\bisindo\images\train"
-DATASET_DIR = r"E:\Project\comvis\train_model\bisindo\images\train"
+DATASET_DIR = r"E:\Project\dataset\bisindo\images\train"
+# DATASET_DIR = r"E:\Project\comvis\train_model\bisindo\images\train"
 
 print("Mulai ekstrak fitur 2 tangan dari gambar...")
 X, y = extract_landmarks_from_dataset(DATASET_DIR, 'saved_models/landmarks_train.npz')
