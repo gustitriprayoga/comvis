@@ -102,6 +102,7 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
         target_size=img_size,
         batch_size=batch_size,
         class_mode='categorical',
+        classes=CLASS_NAMES,
         shuffle=True
     )
 
@@ -112,6 +113,7 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
         target_size=img_size,
         batch_size=batch_size,
         class_mode='categorical',
+        classes=CLASS_NAMES,
         shuffle=False
     )
     
@@ -122,10 +124,12 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
         target_size=img_size,
         batch_size=batch_size,
         class_mode='categorical',
+        classes=CLASS_NAMES,
         shuffle=False
     )
 
     return train_gen, val_gen, test_gen, train_gen.class_indices
+    
 
 
 def get_class_weights(labels: np.ndarray, num_classes: int = NUM_CLASSES) -> dict:

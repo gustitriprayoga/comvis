@@ -1,12 +1,6 @@
 /**
  * ASL Recognition Web Application
- * Aplikasi Penerjemah Bahasa Isyarat ASL
- * 
- * AUTO-SPEAK LOGIC (FIXED):
- * =========================
- * - Baca seluruh kalimat setelah 1 detik tidak ada perubahan
- * - Tidak bergantung pada currentWord (karena currentWord tetap tampil)
- * - Hanya cek apakah sentence berubah
+ * Aplikasi Penerjemah Bahasa Isyarat ASL (MobileNetV3 vs DenseNet121)
  */
 
 class ASLApp {
@@ -15,15 +9,13 @@ class ASLApp {
         this.pollRate = 100;
         this.isConnected = false;
 
-        // Auto-speak settings
         this.autoSpeakEnabled = true;
-        this.autoSpeakDelay = 1000; // 1 detik
+        this.autoSpeakDelay = 1000; 
 
-        // Tracking
-        this.lastSpokenSentence = '';     // Kalimat terakhir yang sudah dibaca
-        this.sentenceChangedTime = 0;     // Waktu terakhir kalimat berubah
-        this.isTyping = false;            // Apakah sedang mengetik (currentWord ada isinya)
-        this.hasStarted = false;          // Flag untuk welcome message
+        this.lastSpokenSentence = '';     
+        this.sentenceChangedTime = 0;     
+        this.isTyping = false;            
+        this.hasStarted = false;          
 
         this.elements = {
             statusDot: document.getElementById('statusDot'),
@@ -37,6 +29,7 @@ class ASLApp {
             btnClear: document.getElementById('btnClear'),
             btnSpeak: document.getElementById('btnSpeak'),
             modeButtons: document.querySelectorAll('.mode-btn'),
+            modelSelector: document.getElementById('modelSelector'),
             autoSpeakTimer: document.getElementById('autoSpeakTimer')
         };
 
@@ -54,30 +47,42 @@ class ASLApp {
         this.elements.btnClear.addEventListener('click', () => this.clearText());
         this.elements.btnSpeak.addEventListener('click', () => this.speakText());
 
+        // Event listener mode kecepatan (Compact Buttons)
         this.elements.modeButtons.forEach(btn => {
             btn.addEventListener('click', () => {
                 const mode = btn.dataset.mode;
+                if (!mode) return; // Skip if it's the select element
                 this.setMode(mode);
                 this.elements.modeButtons.forEach(b => b.classList.remove('active'));
                 btn.classList.add('active');
             });
         });
 
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 's' || e.key === 'S') {
-                this.speakText();
-            } else if (e.key === 'c' || e.key === 'C') {
-                this.clearText();
-            } else if (e.key >= '1' && e.key <= '4') {
-                const modes = ['instant', 'balanced', 'accurate', 'strict'];
-                const index = parseInt(e.key) - 1;
-                if (modes[index]) {
-                    this.setMode(modes[index]);
-                    this.elements.modeButtons.forEach(b => {
-                        b.classList.toggle('active', b.dataset.mode === modes[index]);
+        // Event listener dropdown model
+        if (this.elements.modelSelector) {
+            this.elements.modelSelector.addEventListener('change', async (e) => {
+                const modelName = e.target.value;
+                this.elements.modelSelector.style.opacity = "0.5";
+                
+                try {
+                    await fetch('/api/set_model', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ model: modelName })
                     });
+                    console.log(`Model switched to ${modelName}`);
+                } catch (error) {
+                    console.error('Error setting model:', error);
+                } finally {
+                    this.elements.modelSelector.style.opacity = "1";
                 }
-            }
+            });
+        }
+
+        // Shortcut keyboard
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 's' || e.key === 'S') this.speakText();
+            else if (e.key === 'c' || e.key === 'C') this.clearText();
         });
     }
 
@@ -92,43 +97,27 @@ class ASLApp {
         }
     }
 
-    /**
-     * AUTO-SPEAK - SIMPLIFIED LOGIC
-     * =============================
-     * 1. Jika sentence berubah, reset timer
-     * 2. Jika 1 detik berlalu tanpa perubahan, baca kalimat
-     * 3. Tidak peduli currentWord (karena bisa tetap tampil)
-     */
     startAutoSpeakCheck() {
         setInterval(() => {
             if (!this.autoSpeakEnabled) return;
 
             const sentence = this.elements.sentenceDisplay.textContent;
-            const isPlaceholder = sentence === 'Mulai bahasa isyarat untuk menerjemahkan...';
+            const isPlaceholder = sentence === 'Tunjukkan isyarat tangan ke kamera untuk mulai...';
 
-            // Jika sentence berubah, reset timer
             if (sentence !== this.lastSentence) {
                 this.lastSentence = sentence;
                 this.sentenceChangedTime = Date.now();
                 this.speakScheduled = false;
-                console.log('Sentence berubah:', sentence);
             }
 
-            // Hitung waktu sejak perubahan terakhir
             const timeSinceChange = Date.now() - this.sentenceChangedTime;
 
-            // Kondisi untuk speak:
-            // 1. Bukan placeholder
-            // 2. Sentence berbeda dari yang terakhir dibaca
-            // 3. Sudah 1 detik sejak perubahan
-            // 4. Belum di-schedule
             const canSpeak = !isPlaceholder &&
                 sentence.trim() !== '' &&
                 sentence !== this.lastSpokenSentence &&
                 timeSinceChange >= this.autoSpeakDelay &&
                 !this.speakScheduled;
 
-            // Update display
             if (isPlaceholder || sentence.trim() === '') {
                 this.elements.autoSpeakTimer.textContent = 'Menunggu kalimat...';
             } else if (sentence === this.lastSpokenSentence) {
@@ -142,10 +131,8 @@ class ASLApp {
                 }
             }
 
-            // AUTO-SPEAK
             if (canSpeak) {
                 this.speakScheduled = true;
-                console.log('AUTO-SPEAK:', sentence);
                 this.speakSentence(sentence);
                 this.lastSpokenSentence = sentence;
 
@@ -165,9 +152,7 @@ class ASLApp {
             const state = await response.json();
             this.updateUI(state);
 
-            if (!this.isConnected) {
-                this.setConnected(true);
-            }
+            if (!this.isConnected) this.setConnected(true);
         } catch (error) {
             console.error('State fetch error:', error);
             this.setConnected(false);
@@ -199,7 +184,6 @@ class ASLApp {
 
         const sentence = state.sentence || '';
 
-        // Logic welcome message: hanya muncul pertama kali
         if (sentence && sentence.trim() !== '') {
             this.elements.sentenceDisplay.textContent = sentence;
             this.hasStarted = true;
@@ -209,7 +193,6 @@ class ASLApp {
                 this.elements.sentenceDisplay.textContent = 'Tunjukkan isyarat tangan ke kamera untuk mulai...';
                 this.elements.sentenceDisplay.classList.add('text-muted');
             } else {
-                // Jika sudah pernah mulai tapi sekarang kosong (misal dihapus), biarkan kosong
                 this.elements.sentenceDisplay.textContent = '';
                 this.elements.sentenceDisplay.classList.remove('text-muted');
             }
@@ -222,43 +205,24 @@ class ASLApp {
             const progress = Math.min((streak / requiredStreak) * 100, 100);
             this.elements.progressFill.style.width = `${progress}%`;
             this.elements.progressText.textContent = `Tahan posisi... ${streak}/${requiredStreak}`;
-            this.elements.progressFill.style.background = 'linear-gradient(90deg, #f59e0b, #fbbf24)';
         } else if (validationStatus === 'accepted') {
             this.elements.progressFill.style.width = '100%';
             this.elements.progressText.textContent = 'Berhasil ditangkap!';
-            this.elements.progressFill.style.background = 'linear-gradient(90deg, #10b981, #34d399)';
         } else {
             const pending = state.pending || {};
             if (pending.letter && pending.required > 0) {
                 const progress = Math.min((pending.count / pending.required) * 100, 100);
                 this.elements.progressFill.style.width = `${progress}%`;
                 this.elements.progressText.textContent = `${pending.letter}: ${pending.count}/${pending.required}`;
-
-                if (progress >= 100) {
-                    this.elements.progressFill.style.background = 'linear-gradient(90deg, #22c55e, #4ade80)';
-                } else {
-                    this.elements.progressFill.style.background = 'linear-gradient(90deg, #6366f1, #818cf8)';
-                }
             } else {
                 this.elements.progressFill.style.width = '0%';
-                let statusText = 'Siap menangkap isyarat...';
-                if (validationStatus === 'low_conf') {
-                    statusText = 'Kurang jelas, coba tahan lebih lama';
-                } else if (validationStatus === 'ambiguous') {
-                    statusText = 'Bentuk kurang jelas, coba lebih tegas';
-                } else if (validationStatus === 'hand_moving' || validationStatus === 'keep_still') {
-                    statusText = 'Tangan bergerak, coba tahan diam...';
-                } else if (validationStatus === 'no_hand') {
-                    statusText = 'Arahkan tangan ke kamera';
-                }
-                this.elements.progressText.textContent = statusText;
+                this.elements.progressText.textContent = 'Siap menangkap isyarat...';
             }
         }
     }
 
     setConnected(connected) {
         this.isConnected = connected;
-
         if (connected) {
             this.elements.statusDot.classList.remove('offline');
             this.elements.statusText.textContent = 'Terhubung';
@@ -275,9 +239,7 @@ class ASLApp {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ mode })
             });
-        } catch (error) {
-            console.error('Error:', error);
-        }
+        } catch (error) { console.error('Error:', error); }
     }
 
     async clearText() {
@@ -289,31 +251,22 @@ class ASLApp {
             this.lastSpokenSentence = '';
             this.sentenceChangedTime = 0;
             this.speakScheduled = false;
-        } catch (error) {
-            console.error('Error:', error);
-        }
+        } catch (error) { console.error('Error:', error); }
     }
 
     async speakText() {
-        try {
-            await fetch('/api/speak', { method: 'POST' });
-        } catch (error) {
-            console.error('Error:', error);
-        }
+        try { await fetch('/api/speak', { method: 'POST' }); } 
+        catch (error) { console.error('Error:', error); }
     }
 
-    // Baca kalimat sebagai KATA (bukan per huruf)
-    // "A K U" -> dibaca "AKU"
     async speakSentence(sentence) {
         try {
-            await fetch('/api/speak_as_words', {
+            await fetch('/api/speak', { // Endpoint ini sesuai dengan web_server.py
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: sentence })
             });
-        } catch (error) {
-            console.error('Error:', error);
-        }
+        } catch (error) { console.error('Error:', error); }
     }
 }
 
@@ -321,17 +274,14 @@ document.addEventListener('DOMContentLoaded', () => {
     window.aslApp = new ASLApp();
 });
 
-// Fungsi untuk memunculkan modal gambar
+// Modal Logic
 function showModal(filename) {
     const modal = document.getElementById('imageModal');
     const modalImg = document.getElementById('modalImage');
-
-    // Kita arahkan ke endpoint Flask yang melayani folder saved_generate
     modalImg.src = "/get_generated_image/" + filename;
     modal.style.display = "flex";
 }
 
-// Fungsi untuk menutup modal
 function closeModal() {
     document.getElementById('imageModal').style.display = "none";
 }

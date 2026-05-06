@@ -38,8 +38,8 @@
                     </div>
                 </div>
 
-                <!-- Tips (Moved below video) -->
-                <div class="tips-panel" style="margin-top: 1.5rem;">
+                <!-- Tips -->
+                <div class="tips-panel" style="margin-top: 0.5rem;">
                     <h3>Cara Mendapat Hasil Terbaik</h3>
                     <ul class="tips-list">
                         <li>Tahan setiap isyarat dengan stabil beberapa saat</li>
@@ -90,8 +90,8 @@
                     <div class="progress-container" id="progressContainer">
                         <label>Status pengenalan</label>
                         <div class="progress-bar">
-                            <div class.progress-fill" id="progressFill"></div>
-                            <span class.progress-text" id="progressText">Menunggu isyarat...</span>
+                            <div class="progress-fill" id="progressFill"></div>
+                            <span class="progress-text" id="progressText">Menunggu isyarat...</span>
                         </div>
                     </div>
 
@@ -101,55 +101,52 @@
                     </div>
                 </div>
 
-                <!-- Mode Selection -->
-                <div class="mode-panel">
-                    <h3>Pilih Kecepatan</h3>
-                    <div class="mode-buttons">
-                        <button class="mode-btn" data-mode="instant">
-                            <span class="mode-name">Cepat</span>
-                            <span class="mode-desc">Respons langsung</span>
-                        </button>
-                        <button class="mode-btn active" data-mode="balanced">
-                            <span class="mode-name">Normal</span>
-                            <span class="mode-desc">Seimbang & akurat</span>
-                        </button>
-                        <button class="mode-btn" data-mode="accurate">
-                            <span class="mode-name">Teliti</span>
-                            <span class="mode-desc">Lebih presisi</span>
-                        </button>
-                        <button class="mode-btn" data-mode="strict">
-                            <span class="mode-name">Sangat Teliti</span>
-                            <span class="mode-desc">Paling akurat</span>
-                        </button>
+                <!-- Settings Grid (Mode & Model) -->
+                <div class="settings-grid">
+                    <div class="mode-panel">
+                        <h3>Konfigurasi Sistem</h3>
+                        <div class="settings-row">
+                            <label>Engine Model:</label>
+                            <select id="modelSelector" class="custom-select">
+                                <option value="mobilenetv3">MobileNetV3 (Cepat)</option>
+                                <option value="densenet121">DenseNet121 (Akurat)</option>
+                            </select>
+                        </div>
+
+                        <div class="settings-row">
+                            <label>Mode Kecepatan:</label>
+                            <div class="mode-buttons-compact">
+                                <button class="mode-btn" data-mode="instant" title="Cepat: Respons langsung">C</button>
+                                <button class="mode-btn active" data-mode="balanced"
+                                    title="Normal: Seimbang & akurat">N</button>
+                                <button class="mode-btn" data-mode="accurate" title="Teliti: Lebih presisi">T</button>
+                                <button class="mode-btn" data-mode="strict"
+                                    title="Sangat Teliti: Paling akurat">ST</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
-                <div class="mode-panel">
-                    <h3>Pilih Model</h3>
-                    <div class="mode-buttons">
-                        <select id="modelSelector" class="mode-btn">
-                            <option value="mobilenetv3">MobileNetV3 (Cepat)</option>
-                            <option value="densenet121">DenseNet121 (Akurat)</option>
-                        </select>
-                    </div>
-                </div>
-
+                <!-- Panel Evaluasi -->
                 <div class="evaluation-panel">
-                    <h3>Evaluasi Performa AI</h3>
-                    <div class="eval-buttons">
-                        <button class="btn btn-secondary" onclick="showModal('report_mobilenetv3.png')">Report
-                            MobileNetV3</button>
-                        <button class="btn btn-secondary"
-                            onclick="showModal('confusion_matrix_mobilenetv3.png')">Matrix MobileNetV3</button>
-                        <button class="btn btn-secondary"
-                            onclick="showModal('report_densenet121.png')">Report
-                            DenseNet121</button>
-                        <button class="btn btn-secondary"
-                            onclick="showModal('confusion_matrix_densenet121.png')">Matrix
-                            DenseNet121</button>
+                    <h3>Laporan Performa Model</h3>
+                    <div class="eval-grid">
+                        <div class="eval-card" onclick="showModal('report_mobilenetv3.png')">
+                            <span>Report MNv3</span>
+                        </div>
+                        <div class="eval-card" onclick="showModal('confusion_matrix_mobilenetv3.png')">
+                            <span>Matrix MNv3</span>
+                        </div>
+                        <div class="eval-card" onclick="showModal('report_densenet121.png')">
+                            <span>Report DenseNet</span>
+                        </div>
+                        <div class="eval-card" onclick="showModal('confusion_matrix_densenet121.png')">
+                            <span>Matrix DenseNet</span>
+                        </div>
                     </div>
                 </div>
 
+                <!-- Modal Image -->
                 <div id="imageModal" class="modal-overlay" onclick="closeModal()">
                     <div class="modal-content" onclick="event.stopPropagation()">
                         <span class="close-modal" onclick="closeModal()">&times;</span>
@@ -157,11 +154,8 @@
                     </div>
                 </div>
 
-
             </section>
         </main>
-
-
 
         <!-- Footer -->
         <footer class="footer">
@@ -170,24 +164,6 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
-    <script>
-        const modelSelector = document.getElementById('modelSelector');
-
-        modelSelector.addEventListener('change', async (event) => {
-            const selectedModel = event.target.value;
-            try {
-                await fetch('/api/set_model', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ model: selectedModel }),
-                });
-            } catch (error) {
-                console.error('Error setting model:', error);
-            }
-        });
-    </script>
 </body>
 
 </html>

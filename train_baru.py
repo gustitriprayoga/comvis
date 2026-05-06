@@ -36,7 +36,7 @@ np.save('saved_models/landmark_classifier_classes.npy', list(class_indices.keys(
 print("\n" + "="*60)
 print("TRAINING MOBILENETV3")
 print("="*60)
-model_mobilenet = create_mobilenetv3_model(len(CLASS_NAMES), IMG_SIZE)
+model_mobilenet = create_mobilenetv3_model(len(class_indices), IMG_SIZE)
 callbacks_mobilenet = get_callbacks('saved_models/mobilenetv3_model.keras', patience=15)
 
 history_mobilenet = model_mobilenet.fit(
