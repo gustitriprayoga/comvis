@@ -90,8 +90,8 @@
                     <div class="progress-container" id="progressContainer">
                         <label>Status pengenalan</label>
                         <div class="progress-bar">
-                            <div class="progress-fill" id="progressFill"></div>
-                            <span class="progress-text" id="progressText">Menunggu isyarat...</span>
+                            <div class.progress-fill" id="progressFill"></div>
+                            <span class.progress-text" id="progressText">Menunggu isyarat...</span>
                         </div>
                     </div>
 
@@ -124,19 +124,29 @@
                     </div>
                 </div>
 
+                <div class="mode-panel">
+                    <h3>Pilih Model</h3>
+                    <div class="mode-buttons">
+                        <select id="modelSelector" class="mode-btn">
+                            <option value="mobilenetv3">MobileNetV3 (Cepat)</option>
+                            <option value="densenet121">DenseNet121 (Akurat)</option>
+                        </select>
+                    </div>
+                </div>
+
                 <div class="evaluation-panel">
                     <h3>Evaluasi Performa AI</h3>
                     <div class="eval-buttons">
-                        <button class="btn btn-secondary" onclick="showModal('report_engine_fast_mobilenet.png')">Report
-                            MobileNet</button>
+                        <button class="btn btn-secondary" onclick="showModal('report_mobilenetv3.png')">Report
+                            MobileNetV3</button>
                         <button class="btn btn-secondary"
-                            onclick="showModal('confusion_matrix_engine_fast_mobilenet.png')">Matrix MobileNet</button>
+                            onclick="showModal('confusion_matrix_mobilenetv3.png')">Matrix MobileNetV3</button>
                         <button class="btn btn-secondary"
-                            onclick="showModal('report_engine_accurate_efficientnet.png')">Report
-                            EfficientNet</button>
+                            onclick="showModal('report_densenet121.png')">Report
+                            DenseNet121</button>
                         <button class="btn btn-secondary"
-                            onclick="showModal('confusion_matrix_engine_accurate_efficientnet.png')">Matrix
-                            EfficientNet</button>
+                            onclick="showModal('confusion_matrix_densenet121.png')">Matrix
+                            DenseNet121</button>
                     </div>
                 </div>
 
@@ -160,6 +170,24 @@
     </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+    <script>
+        const modelSelector = document.getElementById('modelSelector');
+
+        modelSelector.addEventListener('change', async (event) => {
+            const selectedModel = event.target.value;
+            try {
+                await fetch('/api/set_model', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ model: selectedModel }),
+                });
+            } catch (error) {
+                console.error('Error setting model:', error);
+            }
+        });
+    </script>
 </body>
 
 </html>
