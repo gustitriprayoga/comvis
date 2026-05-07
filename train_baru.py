@@ -10,7 +10,9 @@ from asl_modules import (
     CLASS_NAMES
 )
 
-DATASET_DIR = r"E:\Project\dataset\bisindo\images\train"
+# DATASET_DIR = r"E:\Project\dataset\bisindo\images\train"
+DATASET_DIR = r"C:\Bisindo\train"
+
 IMG_SIZE = (224, 224)
 BATCH_SIZE = 32
 EPOCHS_MOBILENET = 50

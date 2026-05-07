@@ -61,12 +61,17 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
     # Get all file paths and their labels
     filepaths = []
     labels = []
-    for cls in os.listdir(train_dir):
+    
+    # Discover classes from directory names and sort them
+    discovered_classes = sorted([d for d in os.listdir(train_dir) if os.path.isdir(os.path.join(train_dir, d))])
+    if not discovered_classes:
+        raise ValueError(f"No class directories found in {train_dir}")
+
+    for cls in discovered_classes:
         cls_path = os.path.join(train_dir, cls)
-        if os.path.isdir(cls_path):
-            for file in os.listdir(cls_path):
-                filepaths.append(os.path.join(cls_path, file))
-                labels.append(cls)
+        for file in os.listdir(cls_path):
+            filepaths.append(os.path.join(cls_path, file))
+            labels.append(cls)
 
     # Create a DataFrame
     df = pd.DataFrame({'filepath': filepaths, 'label': labels})
@@ -102,7 +107,7 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
         target_size=img_size,
         batch_size=batch_size,
         class_mode='categorical',
-        classes=CLASS_NAMES,
+        classes=discovered_classes,
         shuffle=True
     )
 
@@ -113,7 +118,7 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
         target_size=img_size,
         batch_size=batch_size,
         class_mode='categorical',
-        classes=CLASS_NAMES,
+        classes=discovered_classes,
         shuffle=False
     )
     
@@ -124,7 +129,7 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
         target_size=img_size,
         batch_size=batch_size,
         class_mode='categorical',
-        classes=CLASS_NAMES,
+        classes=discovered_classes,
         shuffle=False
     )
 
@@ -486,12 +491,14 @@ def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models
     detector = HandDetector(max_num_hands=2, static_mode=True)
     all_landmarks = []
     all_labels = []
-    available_classes = [c for c in CLASS_NAMES if os.path.exists(os.path.join(data_dir, c))]
 
-    for class_idx, class_name in enumerate(tqdm(available_classes)):
+    # Discover classes from directory names and sort them
+    discovered_classes = sorted([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))])
+    if not discovered_classes:
+        raise ValueError(f"No class directories found in {data_dir}")
+
+    for class_idx, class_name in enumerate(tqdm(discovered_classes)):
         class_dir = os.path.join(data_dir, class_name)
-        if not os.path.isdir(class_dir):
-            continue
 
         for img_name in os.listdir(class_dir): 
             img_path = os.path.join(class_dir, img_name)

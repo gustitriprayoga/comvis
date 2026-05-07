@@ -10,12 +10,12 @@ class ASLApp {
         this.isConnected = false;
 
         this.autoSpeakEnabled = true;
-        this.autoSpeakDelay = 1000; 
+        this.autoSpeakDelay = 1000;
 
-        this.lastSpokenSentence = '';     
-        this.sentenceChangedTime = 0;     
-        this.isTyping = false;            
-        this.hasStarted = false;          
+        this.lastSpokenSentence = '';
+        this.sentenceChangedTime = 0;
+        this.isTyping = false;
+        this.hasStarted = false;
 
         this.elements = {
             statusDot: document.getElementById('statusDot'),
@@ -63,7 +63,7 @@ class ASLApp {
             this.elements.modelSelector.addEventListener('change', async (e) => {
                 const modelName = e.target.value;
                 this.elements.modelSelector.style.opacity = "0.5";
-                
+
                 try {
                     await fetch('/api/set_model', {
                         method: 'POST',
@@ -255,7 +255,7 @@ class ASLApp {
     }
 
     async speakText() {
-        try { await fetch('/api/speak', { method: 'POST' }); } 
+        try { await fetch('/api/speak', { method: 'POST' }); }
         catch (error) { console.error('Error:', error); }
     }
 
