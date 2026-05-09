@@ -44,6 +44,7 @@ seaborn>=0.12.0             # Statistical visualization
 # Text-to-Speech
 # -----------------------------------------------------------------------------
 gTTS>=2.3.0                 # Google Text-to-Speech (Bahasa Indonesia)
+pygame>=2.5.0               # Audio playback untuk TTS di Windows
 
 # -----------------------------------------------------------------------------
 # Web Server

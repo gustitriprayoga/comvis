@@ -23,7 +23,6 @@ Proyek ini dikembangkan untuk menerjemahkan bahasa isyarat BISINDO menjadi teks 
 ## ✨ Fitur Utama
 
 - **Deteksi 2 Tangan (126 Landmarks):** Mengekstrak fitur spasial 3D secara detail (dilengkapi logika _anti-flip_ dan _relative positioning_ dari pergelangan tangan).
-- **Dual-Engine Recognition:** Kombinasi cerdas antara kecepatan dan presisi tinggi menggunakan dua otak AI yang saling melengkapi.
 - **Auto-Speak (Text-to-Speech):** Membacakan kalimat yang sudah diterjemahkan secara otomatis dengan suara (dioptimalkan pembacaan per kata).
 - **Live Evaluation UI:** Menampilkan _Classification Report_ dan _Confusion Matrix_ secara langsung dari dalam website untuk transparansi performa model.
 - **Smart Buffer:** Mencegah deteksi berulang/spam saat posisi tangan pengguna masih bergerak atau belum stabil.

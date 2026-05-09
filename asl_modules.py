@@ -8,11 +8,23 @@ import tensorflow as tf
 from PIL import Image
 from sklearn.model_selection import train_test_split
 from sklearn.utils.class_weight import compute_class_weight
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras import Model
-from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Input, GlobalAveragePooling2D
-from tensorflow.keras.applications import MobileNetV3Small, DenseNet121
-from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+# Keras compatibility shim (TF < 2.16 vs TF >= 2.16 / Keras 3)
+try:
+    from tensorflow.keras.preprocessing.image import ImageDataGenerator
+    from tensorflow.keras import Model
+    from tensorflow.keras.layers import Dense, Dropout, BatchNormalization, Input, GlobalAveragePooling2D
+    from tensorflow.keras.applications import MobileNetV3Small, DenseNet121
+    from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
+except (ImportError, ModuleNotFoundError):
+    # Keras 3 standalone (TF >= 2.16)
+    try:
+        from keras.src.legacy.preprocessing.image import ImageDataGenerator
+    except (ImportError, ModuleNotFoundError):
+        from keras.preprocessing.image import ImageDataGenerator
+    from keras import Model
+    from keras.layers import Dense, Dropout, BatchNormalization, Input, GlobalAveragePooling2D
+    from keras.applications import MobileNetV3Small, DenseNet121
+    from keras.callbacks import EarlyStopping, ModelCheckpoint, ReduceLROnPlateau
 from typing import List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
@@ -43,12 +55,6 @@ DEFAULT_IMG_SIZE = (224, 224)
 # SECTION 2: DATA LOADING MODULE
 # ============================================================================
 
-def crop_hand(image: np.ndarray) -> np.ndarray:
-    """
-    Crops the hand from the image.
-    (This is a placeholder, a more sophisticated method may be needed)
-    """
-    return image
 
 def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
                            batch_size: int = 32, validation_split: float = 0.2,
@@ -92,13 +98,12 @@ def create_data_generators(train_dir: str, img_size: tuple = DEFAULT_IMG_SIZE,
             zoom_range=0.2,
             brightness_range=[0.8, 1.2],
             horizontal_flip=True,
-            fill_mode='nearest',
-            preprocessing_function=crop_hand
+            fill_mode='nearest'
         )
     else:
-        train_datagen = ImageDataGenerator(rescale=1./255, preprocessing_function=crop_hand)
+        train_datagen = ImageDataGenerator(rescale=1./255)
 
-    test_datagen = ImageDataGenerator(rescale=1./255, preprocessing_function=crop_hand)
+    test_datagen = ImageDataGenerator(rescale=1./255)
 
     train_gen = train_datagen.flow_from_dataframe(
         train_df,
@@ -148,53 +153,86 @@ def get_class_weights(labels: np.ndarray, num_classes: int = NUM_CLASSES) -> dic
     return class_weights
 
 # ============================================================================
-# SECTION 3: MODEL ARCHITECTURE (DUAL-ENGINE)
+# SECTION 3: MODEL ARCHITECTURE (MobileNetV3 vs DenseNet121)
 # ============================================================================
 def create_mobilenetv3_model(num_classes: int = NUM_CLASSES, img_size: tuple = DEFAULT_IMG_SIZE) -> Model:
-    """Engine 1: MobileNetV3"""
+    """Engine 1: MobileNetV3Small — Transfer Learning (base frozen by default)."""
     base_model = MobileNetV3Small(input_shape=img_size + (3,), include_top=False, weights='imagenet')
-    base_model.trainable = True
+    base_model.trainable = False  # Freeze: hanya train head dulu (Fase 1)
 
     inputs = Input(shape=img_size + (3,))
-    x = base_model(inputs, training=True)
+    x = base_model(inputs, training=False)
     x = GlobalAveragePooling2D()(x)
-    x = Dense(1024, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dense(512, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    x = Dense(256, activation='relu')(x)
     x = Dropout(0.2)(x)
     outputs = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs, outputs, name="MobileNetV3")
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+                  loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
 def create_densenet121_model(num_classes: int = NUM_CLASSES, img_size: tuple = DEFAULT_IMG_SIZE) -> Model:
-    """Engine 2: DenseNet121"""
+    """Engine 2: DenseNet121 — Transfer Learning (base frozen by default)."""
     base_model = DenseNet121(input_shape=img_size + (3,), include_top=False, weights='imagenet')
-    base_model.trainable = True
+    base_model.trainable = False  # Freeze: hanya train head dulu (Fase 1)
 
     inputs = Input(shape=img_size + (3,))
-    x = base_model(inputs, training=True)
+    x = base_model(inputs, training=False)
     x = GlobalAveragePooling2D()(x)
-    x = Dense(1024, activation='relu')(x)
+    x = BatchNormalization()(x)
+    x = Dense(512, activation='relu')(x)
+    x = Dropout(0.3)(x)
+    x = Dense(256, activation='relu')(x)
     x = Dropout(0.2)(x)
     outputs = Dense(num_classes, activation='softmax')(x)
 
     model = Model(inputs, outputs, name="DenseNet121")
-    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001), loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+                  loss='categorical_crossentropy', metrics=['accuracy'])
+    return model
+
+
+def unfreeze_model(model, num_layers_to_unfreeze: int = 20, learning_rate: float = 1e-5):
+    """Fase 2: Unfreeze beberapa layer terakhir base model untuk fine-tuning.
+    
+    Args:
+        model: Model Keras yang sudah di-train Fase 1.
+        num_layers_to_unfreeze: Jumlah layer terakhir base model yang di-unfreeze.
+        learning_rate: Learning rate rendah untuk fine-tuning agar tidak merusak weights.
+    """
+    base_model = model.layers[1]  # Layer kedua adalah base model
+    base_model.trainable = True
+    
+    # Freeze semua layer kecuali N layer terakhir
+    for layer in base_model.layers[:-num_layers_to_unfreeze]:
+        layer.trainable = False
+    
+    trainable_count = sum(1 for l in base_model.layers if l.trainable)
+    total_count = len(base_model.layers)
+    print(f"[Fine-tune] {trainable_count}/{total_count} layers base model di-unfreeze")
+    
+    # Re-compile dengan learning rate lebih rendah
+    model.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate),
+                  loss='categorical_crossentropy', metrics=['accuracy'])
     return model
 
 
 def get_callbacks(model_save_path: str = 'saved_models/asl_model_best.keras',
-                  patience: int = 10) -> list:
+                  patience: int = 7) -> list:
     """Create training callbacks."""
     os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
     return [
         EarlyStopping(monitor='val_loss', patience=patience, restore_best_weights=True),
         ModelCheckpoint(model_save_path, monitor='val_accuracy', save_best_only=True),
-        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5, min_lr=1e-7)
+        ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=3, min_lr=1e-7)
     ]
 
 # ============================================================================
-# SECTION 4: HAND DETECTION (MediaPipe)
+# SECTION 4: HAND DETECTION (MediaPipe — kompatibel versi lama & baru)
 # ============================================================================
 
 @dataclass
@@ -205,122 +243,145 @@ class HandResult:
     handedness: str
     confidence: float
 
+# Koneksi antar landmark tangan untuk drawing manual
+HAND_CONNECTIONS = [
+    (0,1),(1,2),(2,3),(3,4),       # Thumb
+    (0,5),(5,6),(6,7),(7,8),       # Index
+    (0,9),(9,10),(10,11),(11,12),  # Middle
+    (0,13),(13,14),(14,15),(15,16),# Ring
+    (0,17),(17,18),(18,19),(19,20),# Pinky
+    (5,9),(9,13),(13,17)           # Palm
+]
+
 class HandDetector:
-    """Hand detection using MediaPipe."""
+    """Hand detection using MediaPipe. 
+    Kompatibel dengan:
+    - mediapipe <= 0.10.14 (mp.solutions API)
+    - mediapipe >= 0.10.21 (mp.tasks API)
+    """
 
-    def __init__(self, max_num_hands: int = 2, min_detection_confidence: float = 0.7, static_mode: bool = False):
+    def __init__(self, max_num_hands: int = 2, min_detection_confidence: float = 0.7, 
+                 static_mode: bool = False, model_path: str = 'hand_landmarker.task'):
         import mediapipe as mp
-        self.mp_hands = mp.solutions.hands
-        self.mp_drawing = mp.solutions.drawing_utils
-        self.mp_drawing_styles = mp.solutions.drawing_styles
+        self._use_tasks_api = False
+        self._mp = mp
 
-        self.hands = self.mp_hands.Hands(
-            static_image_mode=static_mode,
-            max_num_hands=max_num_hands,
-            min_detection_confidence=min_detection_confidence, 
-            min_tracking_confidence=0.5
-        )
+        # Coba gunakan mp.solutions (versi lama) terlebih dahulu
+        try:
+            self.mp_hands = mp.solutions.hands
+            self.mp_drawing = mp.solutions.drawing_utils
+            self.mp_drawing_styles = mp.solutions.drawing_styles
+            self.hands = self.mp_hands.Hands(
+                static_image_mode=static_mode,
+                max_num_hands=max_num_hands,
+                min_detection_confidence=min_detection_confidence,
+                min_tracking_confidence=0.5
+            )
+            print("[HandDetector] Menggunakan mp.solutions API (legacy)")
+        except AttributeError:
+            # mp.solutions tidak tersedia → gunakan mp.tasks API (versi baru)
+            from mediapipe.tasks import python as mp_tasks
+            from mediapipe.tasks.python import vision as mp_vision
+
+            if not os.path.exists(model_path):
+                raise FileNotFoundError(
+                    f"[HandDetector] File model '{model_path}' tidak ditemukan!\n"
+                    f"Download dari: https://storage.googleapis.com/mediapipe-models/"
+                    f"hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
+                )
+            
+            base_options = mp_tasks.BaseOptions(model_asset_path=model_path)
+            options = mp_vision.HandLandmarkerOptions(
+                base_options=base_options,
+                num_hands=max_num_hands,
+                min_hand_detection_confidence=min_detection_confidence,
+                min_tracking_confidence=0.5,
+                running_mode=mp_vision.RunningMode.IMAGE if static_mode else mp_vision.RunningMode.IMAGE
+            )
+            self.hands = mp_vision.HandLandmarker.create_from_options(options)
+            self._use_tasks_api = True
+            print("[HandDetector] Menggunakan mp.tasks API (baru)")
+
         self._results = None
 
     def detect(self, frame: np.ndarray, draw: bool = False) -> List[HandResult]:
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        self._results = self.hands.process(rgb_frame)
         detected_hands = []
         h, w = frame.shape[:2]
 
-        if self._results.multi_hand_landmarks:
-            for idx, hand_landmarks in enumerate(self._results.multi_hand_landmarks):
-                landmarks = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
-                x_coords = (landmarks[:, 0] * w).astype(int)
-                y_coords = (landmarks[:, 1] * h).astype(int)
-                padding = 40
-                x, y = max(0, x_coords.min() - padding), max(0, y_coords.min() - padding)
-                x2, y2 = min(w, x_coords.max() + padding), min(h, y_coords.max() + padding)
+        if self._use_tasks_api:
+            # --- MediaPipe Tasks API (baru) ---
+            mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb_frame)
+            result = self.hands.detect(mp_image)
 
-                handedness = 'Right'
-                confidence = 0.0
-                if self._results.multi_handedness:
-                    handedness = self._results.multi_handedness[idx].classification[0].label
-                    confidence = self._results.multi_handedness[idx].classification[0].score
+            if result.hand_landmarks:
+                for idx, hand_lms in enumerate(result.hand_landmarks):
+                    landmarks = np.array([[lm.x, lm.y, lm.z] for lm in hand_lms], dtype=np.float32)
+                    x_coords = (landmarks[:, 0] * w).astype(int)
+                    y_coords = (landmarks[:, 1] * h).astype(int)
+                    padding = 40
+                    x = max(0, int(x_coords.min()) - padding)
+                    y_min = max(0, int(y_coords.min()) - padding)
+                    x2 = min(w, int(x_coords.max()) + padding)
+                    y2 = min(h, int(y_coords.max()) + padding)
 
-                detected_hands.append(HandResult(landmarks, (x, y, x2-x, y2-y), handedness, confidence))
+                    handedness = 'Right'
+                    confidence = 0.0
+                    if result.handedness and idx < len(result.handedness):
+                        handedness = result.handedness[idx][0].category_name
+                        confidence = result.handedness[idx][0].score
 
-                if draw:
-                    self.mp_drawing.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_drawing_styles.get_default_hand_landmarks_style(),
-                        self.mp_drawing_styles.get_default_hand_connections_style())
+                    detected_hands.append(HandResult(landmarks, (x, y_min, x2-x, y2-y_min), handedness, confidence))
+
+                    if draw:
+                        self._draw_landmarks_manual(frame, landmarks, w, h)
+        else:
+            # --- MediaPipe Solutions API (lama) ---
+            self._results = self.hands.process(rgb_frame)
+
+            if self._results.multi_hand_landmarks:
+                for idx, hand_landmarks in enumerate(self._results.multi_hand_landmarks):
+                    landmarks = np.array([[lm.x, lm.y, lm.z] for lm in hand_landmarks.landmark], dtype=np.float32)
+                    x_coords = (landmarks[:, 0] * w).astype(int)
+                    y_coords = (landmarks[:, 1] * h).astype(int)
+                    padding = 40
+                    x = max(0, x_coords.min() - padding)
+                    y_min = max(0, y_coords.min() - padding)
+                    x2 = min(w, x_coords.max() + padding)
+                    y2 = min(h, y_coords.max() + padding)
+
+                    handedness = 'Right'
+                    confidence = 0.0
+                    if self._results.multi_handedness:
+                        handedness = self._results.multi_handedness[idx].classification[0].label
+                        confidence = self._results.multi_handedness[idx].classification[0].score
+
+                    detected_hands.append(HandResult(landmarks, (x, y_min, x2-x, y2-y_min), handedness, confidence))
+
+                    if draw:
+                        self.mp_drawing.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_drawing_styles.get_default_hand_landmarks_style(),
+                            self.mp_drawing_styles.get_default_hand_connections_style())
         return detected_hands
+
+    def _draw_landmarks_manual(self, frame: np.ndarray, landmarks: np.ndarray, w: int, h: int):
+        """Draw hand landmarks dan connections secara manual (untuk Tasks API)."""
+        pts = [(int(lm[0] * w), int(lm[1] * h)) for lm in landmarks]
+        
+        # Draw connections (garis antar landmark)
+        for start, end in HAND_CONNECTIONS:
+            if start < len(pts) and end < len(pts):
+                cv2.line(frame, pts[start], pts[end], (0, 255, 0), 2)
+        
+        # Draw landmark points
+        for pt in pts:
+            cv2.circle(frame, pt, 4, (0, 0, 255), -1)
 
     def release(self):
         if hasattr(self, 'hands'):
             self.hands.close()
 
-# ============================================================================
-# SECTION 5: LANDMARK CLASSIFIER (DUAL-ENGINE)
-# ============================================================================
-
-# ============================================================================
-# SECTION 5: LANDMARK CLASSIFIER (DUAL-ENGINE)
-# ============================================================================
-
-class DualEngineASLClassifier:
-    """Trained dual-engine landmark-based ASL classifier."""
-
-    def __init__(self, 
-                 model_fast_path: str = "saved_models/mobilenet_landmark.keras",
-                 model_acc_path: str = "saved_models/efficientnet_landmark.keras",
-                 classes_path: str = "saved_models/landmark_classifier_classes.npy"):
-
-        self.model_fast = None
-        self.model_acc = None
-        self.class_names = CLASS_NAMES
-
-        if os.path.exists(model_fast_path) and os.path.exists(model_acc_path):
-            self.model_fast = tf.keras.models.load_model(model_fast_path)
-            self.model_acc = tf.keras.models.load_model(model_acc_path)
-            print("[DualEngine] 🔥 MobileNetV2 & EfficientNetB0 loaded & ready!")
-
-        if os.path.exists(classes_path):
-            self.class_names = list(np.load(classes_path, allow_pickle=True))
-
-    def process_two_hands(self, detected_hands) -> np.ndarray:
-        if not detected_hands: return np.zeros(126)
-        hands = sorted(detected_hands, key=lambda h: h.landmarks[0][0])
-        combined = np.zeros(126)
-        base_wrist = hands[0].landmarks[0].copy()
-
-        all_norms = []
-        for hand in hands[:2]:
-            all_norms.append(hand.landmarks - base_wrist)
-
-        max_dist = max([np.max(np.linalg.norm(n, axis=1)) for n in all_norms])
-        for i, norm in enumerate(all_norms):
-            if max_dist > 0: norm = norm / max_dist
-            combined[i*63:(i+1)*63] = norm.flatten()
-        return combined
-
-    def predict_fast(self, combined_features: np.ndarray) -> tuple:
-        """Hanya menggunakan MobileNetV2 (Sangat Cepat buat Tracking)"""
-        if self.model_fast is None: return "?", 0.0
-        flat = combined_features.reshape(1, -1)
-        pred = self.model_fast.predict(flat, verbose=0)[0]
-        idx = np.argmax(pred)
-        return self.class_names[idx], float(pred[idx])
-
-    def predict_accurate(self, combined_features: np.ndarray) -> tuple:
-        """Hanya menggunakan EfficientNet-B0 (Sangat Akurat buat Verifikasi)"""
-        if self.model_acc is None: return "?", 0.0
-        flat = combined_features.reshape(1, -1)
-        pred = self.model_acc.predict(flat, verbose=0)[0]
-        idx = np.argmax(pred)
-        return self.class_names[idx], float(pred[idx])
-
-    def classify(self, combined_features: np.ndarray) -> tuple:
-        # Legacy support
-        letter, conf = self.predict_fast(combined_features)
-        if conf < 0.90:
-            return self.predict_accurate(combined_features) + ("EfficientNet-B0",)
-        return letter, conf, "MobileNetV2"
+# (DualEngineASLClassifier removed — tidak digunakan di sistem image-based)
 
 # ============================================================================
 # SECTION 6: TEXT-TO-SPEECH ENGINE & BUFFER
@@ -481,105 +542,55 @@ class TextBuffer:
         self._pending_letter = ""
         self._pending_count = 0
 
-# ============================================================================
-# SECTION 7: DATASET EXTRACTION
-# ============================================================================
-
-def extract_landmarks_from_dataset(data_dir: str, save_path: str = 'saved_models/landmarks_train.npz'):
-    """Extract hand landmarks from dataset images."""
-    print("Extracting landmarks from dataset...")
-    detector = HandDetector(max_num_hands=2, static_mode=True)
-    all_landmarks = []
-    all_labels = []
-
-    # Discover classes from directory names and sort them
-    discovered_classes = sorted([d for d in os.listdir(data_dir) if os.path.isdir(os.path.join(data_dir, d))])
-    if not discovered_classes:
-        raise ValueError(f"No class directories found in {data_dir}")
-
-    for class_idx, class_name in enumerate(tqdm(discovered_classes)):
-        class_dir = os.path.join(data_dir, class_name)
-
-        for img_name in os.listdir(class_dir): 
-            img_path = os.path.join(class_dir, img_name)
-            try:
-                img = cv2.imread(img_path)
-                if img is None:
-                    continue
-                hands = detector.detect(img, draw=False)
-                if hands:
-                    hands = sorted(hands, key=lambda h: h.landmarks[0][0])
-                    combined = np.zeros(126)
-                    base_wrist = hands[0].landmarks[0].copy()
-
-                    all_norms = []
-                    for hand in hands[:2]:
-                        all_norms.append(hand.landmarks - base_wrist)
-
-                    max_dist = max([np.max(np.linalg.norm(n, axis=1)) for n in all_norms])
-                    for i, norm in enumerate(all_norms):
-                        if max_dist > 0: norm = norm / max_dist
-                        combined[i*63:(i+1)*63] = norm.flatten()
-
-                    all_landmarks.append(combined)
-                    all_labels.append(class_idx)
-            except Exception:
-                continue
-
-    detector.release()
-    X = np.array(all_landmarks)
-    y = np.array(all_labels)
-    os.makedirs(os.path.dirname(save_path), exist_ok=True)
-    np.savez(save_path, X=X, y=y)
-    print(f"Saved {len(X)} landmark samples to {save_path}")
-    return X, y
+# (extract_landmarks_from_dataset removed — tidak digunakan di sistem image-based)
 
 # ============================================================================
 # SECTION 8: EVALUATION FUNCTIONS
 # ============================================================================
 
 def evaluate_model(model, test_generator):
-    """Evaluate model and save Classification Report + Confusion Matrix as PNG into 'saved_generate'."""
+    """Evaluate model: Classification Report, Confusion Matrix, Accuracy, Precision, Recall, F1-Score, Inference Time.
+    Semua hasil disimpan ke folder saved_generate/ sebagai PNG."""
     from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, precision_score, recall_score, f1_score
+    import matplotlib
+    matplotlib.use('Agg')  # Non-interactive backend agar tidak blocking
     import matplotlib.pyplot as plt
     import seaborn as sns
     import pandas as pd 
     import os
     import time
 
-    # 1. BIKIN FOLDER OUTPUT BARU
     OUTPUT_DIR = 'saved_generate'
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # 2. Prediksi data
+    # Prediksi data + hitung inference time
+    print(f"\n[Evaluasi] Mengevaluasi {model.name}...")
     start_time = time.time()
-    predictions = model.predict(test_generator, verbose=0)
-    inference_time = (time.time() - start_time) / len(test_generator.filenames)
+    predictions = model.predict(test_generator, verbose=1)
+    total_inference_time = time.time() - start_time
+    num_images = len(test_generator.filenames)
+    inference_time = total_inference_time / num_images
 
     y_pred = np.argmax(predictions, axis=1)
     y_true = test_generator.classes
-
-    # Ambil nama kelas yang aktif
     target_names = list(test_generator.class_indices.keys())
 
     # ============================================================
-    # GENERATE CLASSIFICATION REPORT (TABLE PNG)
+    # CLASSIFICATION REPORT (Heatmap PNG)
     # ============================================================
     report_dict = classification_report(y_true, y_pred, target_names=target_names, output_dict=True)
-    report_df = pd.DataFrame(report_dict).iloc[:-1, :].T # Buang baris support total biar rapi
+    report_df = pd.DataFrame(report_dict).iloc[:-1, :].T
 
     plt.figure(figsize=(10, 12))
     sns.heatmap(report_df, annot=True, cmap="YlGnBu", cbar=False, fmt=".2f")
     plt.title(f'Classification Report - {model.name}')
-
-    # Simpan ke folder saved_generate
     report_file = os.path.join(OUTPUT_DIR, f'report_{model.name.lower()}.png')
     plt.savefig(report_file, dpi=300, bbox_inches='tight')
-    print(f"Laporan Klasifikasi disimpan: {report_file}")
     plt.close()
+    print(f"  Classification Report disimpan: {report_file}")
 
     # ============================================================
-    # GENERATE CONFUSION MATRIX (HEATMAP PNG)
+    # CONFUSION MATRIX (Heatmap PNG)
     # ============================================================
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(12, 10))
@@ -587,38 +598,48 @@ def evaluate_model(model, test_generator):
                 xticklabels=target_names, yticklabels=target_names)
     plt.title(f'Confusion Matrix - {model.name}')
     plt.ylabel('Label Asli')
-    plt.xlabel('Tebakan AI')
+    plt.xlabel('Prediksi AI')
     plt.tight_layout()
-
-    # Simpan ke folder saved_generate
     matrix_file = os.path.join(OUTPUT_DIR, f'confusion_matrix_{model.name.lower()}.png')
     plt.savefig(matrix_file, dpi=300)
-    print(f"Confusion Matrix disimpan: {matrix_file}")
-    plt.show()
+    plt.close()
+    print(f"  Confusion Matrix disimpan: {matrix_file}")
 
     # ============================================================
-    # PRINT OTHER METRICS
+    # PRINT METRICS
     # ============================================================
     accuracy = accuracy_score(y_true, y_pred)
     precision = precision_score(y_true, y_pred, average='weighted')
     recall = recall_score(y_true, y_pred, average='weighted')
     f1 = f1_score(y_true, y_pred, average='weighted')
 
-    print(f"Accuracy: {accuracy:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1-score: {f1:.4f}")
-    print(f"Inference time: {inference_time:.6f} seconds per image")
+    print(f"\n  === Hasil Evaluasi {model.name} ===")
+    print(f"  Accuracy  : {accuracy:.4f}")
+    print(f"  Precision : {precision:.4f}")
+    print(f"  Recall    : {recall:.4f}")
+    print(f"  F1-Score  : {f1:.4f}")
+    print(f"  Inference : {inference_time:.6f} detik/gambar ({1/inference_time:.1f} FPS)")
+    print(f"  Total waktu inferensi: {total_inference_time:.2f} detik untuk {num_images} gambar")
+
+    return {
+        'accuracy': accuracy, 'precision': precision,
+        'recall': recall, 'f1_score': f1,
+        'inference_time': inference_time
+    }
 
 
-def plot_training_history(history):
-    """Plot training history."""
+def plot_training_history(history, model_name: str = 'model'):
+    """Plot training history dan simpan ke saved_generate/."""
+    import matplotlib
+    matplotlib.use('Agg')
     import matplotlib.pyplot as plt
+
+    os.makedirs('saved_generate', exist_ok=True)
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
     axes[0].plot(history.history['accuracy'], label='Train Accuracy')
     axes[0].plot(history.history['val_accuracy'], label='Val Accuracy')
-    axes[0].set_title('Model Accuracy')
+    axes[0].set_title(f'{model_name} - Accuracy')
     axes[0].set_xlabel('Epoch')
     axes[0].set_ylabel('Accuracy')
     axes[0].legend()
@@ -626,12 +647,14 @@ def plot_training_history(history):
 
     axes[1].plot(history.history['loss'], label='Train Loss')
     axes[1].plot(history.history['val_loss'], label='Val Loss')
-    axes[1].set_title('Model Loss')
+    axes[1].set_title(f'{model_name} - Loss')
     axes[1].set_xlabel('Epoch')
     axes[1].set_ylabel('Loss')
     axes[1].legend()
     axes[1].grid(True)
 
     plt.tight_layout()
-    plt.savefig('saved_models/training_history.png')
-    plt.show()
+    save_path = f'saved_generate/training_history_{model_name.lower()}.png'
+    plt.savefig(save_path, dpi=200)
+    plt.close()
+    print(f"  Training history disimpan: {save_path}")
